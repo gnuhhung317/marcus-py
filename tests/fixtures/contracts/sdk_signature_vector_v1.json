@@ -1,0 +1,10 @@
+{
+  "payload": {
+    "symbol": "BTCUSDT",
+    "side": "LONG",
+    "action": "OPEN_LONG",
+    "confidence_score": 0.9
+  },
+  "secret": "dev-secret",
+  "signature": "554c259bafbb52125cd885546f81e07dbbab240b8c1e5df0aeab390b0e66581a"
+}

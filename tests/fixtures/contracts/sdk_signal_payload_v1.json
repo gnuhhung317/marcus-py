@@ -1,0 +1,12 @@
+{
+  "side": "LONG",
+  "action": "OPEN_LONG",
+  "symbol": "BTCUSDT",
+  "tp": 30000.0,
+  "sl": 28000.0,
+  "confidence_score": 0.82,
+  "metadata": {
+    "strategy": "contract-fixture"
+  },
+  "timestamp": "2026-04-01T12:00:00Z"
+}
