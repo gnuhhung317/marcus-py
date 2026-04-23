@@ -1,0 +1,72 @@
+Metadata-Version: 2.4
+Name: quant-signal-sdk
+Version: 0.1.0
+Summary: Developer SDK for validating and publishing trading signals
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pydantic<3.0,>=2.7
+Requires-Dist: requests<3.0,>=2.32
+Requires-Dist: urllib3<3.0,>=2.2
+Requires-Dist: ccxt<6.0,>=4.0
+Provides-Extra: dev
+Requires-Dist: pytest<8.0,>=7.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.10; extra == "dev"
+Requires-Dist: pyright>=1.1; extra == "dev"
+Requires-Dist: build>=1.0; extra == "dev"
+Requires-Dist: twine>=4.0; extra == "dev"
+Dynamic: license-file
+
+﻿# Quant Signal SDK
+
+This repository now contains only the developer SDK package: `quant_signal_sdk`.
+
+Local executor client code has been moved to `local-executor-client` in the workspace.
+
+## Features
+- Pydantic signal models and enums (`SignalPayload`, `SignalSide`, `SignalAction`).
+- Retry-enabled HTTP transport (`NetworkClient`) using `requests` and `urllib3.Retry`.
+- Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
+- High-level API client (`QuantSignalClient`) for authenticated signal submission.
+- Minimal `BaseStrategy` contract for strategy inheritance.
+
+## Quickstart
+```python
+from quant_signal_sdk import QuantSignalClient, SignalPayload
+
+client = QuantSignalClient(
+    base_url="https://api.example.com",
+    api_key="your-api-key",
+    signer_secret="optional-signing-secret",
+)
+
+signal = SignalPayload(
+    side="LONG",
+    action="OPEN_LONG",
+    symbol="BTCUSDT",
+    tp=72000,
+    sl=68500,
+    confidence_score=0.84,
+    metadata={"strategy": "trend_v1"},
+)
+
+result = client.send_signal(signal)
+print(result)
+```
+
+## Requirements
+- Python 3.10+
+
+## Setup
+```bash
+pip install -e .
+```
+
+## Tests
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Contract Fixtures
+- SDK fixtures are versioned under `tests/fixtures/contracts`.
+- SDK compatibility checks are in `tests/test_contract_compatibility_sdk.py`.
