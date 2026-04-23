@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from quant_signal_sdk.client import QuantSignalClient
 
 
@@ -20,7 +22,14 @@ class DummyNetworkClient:
     def __init__(self):
         self.calls = []
 
-    def post_json(self, *, url: str, headers: dict, json_body: dict, timeout_seconds: float):
+    def post_json(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        json_body: dict[str, Any],
+        timeout_seconds: float,
+    ) -> FakeResponse:
         self.calls.append({"url": url, "headers": headers, "json": json_body, "timeout": timeout_seconds})
         return FakeResponse()
 
