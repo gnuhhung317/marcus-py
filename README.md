@@ -39,13 +39,38 @@ print(result)
 - Python 3.10+
 
 ## Setup
+Install the library for local development:
+
 ```bash
 pip install -e .
+```
+
+Install with SDK development tools:
+
+```bash
+pip install -e .[dev]
+```
+
+Install optional market-data helpers:
+
+```bash
+pip install -e .[market-data]
+```
+
+Install both dev and market-data extras together:
+
+```bash
+pip install -e .[dev,market-data]
 ```
 
 ## Tests
 ```bash
 python -m unittest discover -s tests -v
+```
+
+## Build
+```bash
+python -m build --sdist --wheel
 ```
 
 ## Contract Fixtures
