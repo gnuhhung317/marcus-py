@@ -45,6 +45,28 @@ def test_send_payload_with_bot_key_sets_header_and_returns_json():
     assert len(net.calls) == 1
     call = net.calls[0]
     assert call["headers"].get("X-Bot-Api-Key") == "bot-abc-123"
+    assert "X-Timestamp" in call["headers"]
+    assert call["json"] == payload
+
+
+def test_send_payload_with_bot_key_signs_payload_when_secret_is_set():
+    net = DummyNetworkClient()
+    client = QuantSignalClient(
+        base_url="http://localhost:8080",
+        api_key="user-key",
+        signer_secret="bot-secret-123",
+        network_client=net,
+    )
+
+    payload = {"signal": "x"}
+    result = client.send_payload_with_bot_key(payload, bot_api_key="bot-abc-123")
+
+    assert result == {"result": "ok"}
+    assert len(net.calls) == 1
+    call = net.calls[0]
+    assert call["headers"].get("X-Bot-Api-Key") == "bot-abc-123"
+    assert "X-Timestamp" in call["headers"]
+    assert "X-Signature" in call["headers"]
     assert call["json"] == payload
 
 

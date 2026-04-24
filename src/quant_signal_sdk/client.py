@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Mapping
 
 from .models import SignalPayload
@@ -66,6 +67,7 @@ class QuantSignalClient:
         headers = {
             "Content-Type": "application/json",
             self._bot_api_key_header: bot_api_key,
+            "X-Timestamp": str(int(time.time() * 1000)),
         }
         if self._signer_secret:
             headers[self._signature_header] = generate_hmac_signature(json_payload, self._signer_secret)
