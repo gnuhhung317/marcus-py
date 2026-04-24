@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .models import SignalPayload
-from .network import NetworkClient
+from .network import NetworkClient, NetworkClientProtocol
 from .signing import generate_hmac_signature
 
 
@@ -18,7 +18,7 @@ class QuantSignalClient:
         signer_secret: str | None = None,
         signature_header: str = "X-Signature",
         api_key_header: str = "X-API-Key",
-        network_client: NetworkClient | None = None,
+        network_client: NetworkClientProtocol | None = None,
         bot_api_key_header: str = "X-Bot-Api-Key",
     ) -> None:
         self._base_url = base_url.rstrip("/")
