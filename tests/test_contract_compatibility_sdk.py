@@ -11,7 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from quant_signal_sdk.models import SignalPayload
+from quant_signal_sdk.models import SignalAction, SignalPayload, SignalSide
 from quant_signal_sdk.signing import generate_hmac_signature
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "contracts"
@@ -26,8 +26,8 @@ class SdkContractFixtureTest(unittest.TestCase):
     def test_should_match_sdk_signal_payload_contract_fixture(self) -> None:
         expected = _load_fixture("sdk_signal_payload_v1.json")
         payload = SignalPayload(
-            side="LONG",
-            action="OPEN_LONG",
+            side=SignalSide.LONG,
+            action=SignalAction.OPEN_LONG,
             symbol="BTCUSDT",
             tp=30000,
             sl=28000,

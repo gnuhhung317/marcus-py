@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 import requests
 from requests import Response, Session
@@ -8,6 +8,18 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 RETRY_STATUS_CODES = (500, 502, 503, 504)
+
+
+class NetworkClientProtocol(Protocol):
+    def post_json(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        json_body: dict[str, Any],
+        timeout_seconds: float,
+    ) -> Any:
+        ...
 
 
 class NetworkClient:

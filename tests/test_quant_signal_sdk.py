@@ -6,7 +6,7 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import requests
@@ -16,7 +16,7 @@ from requests.adapters import HTTPAdapter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from quant_signal_sdk.client import QuantSignalClient
-from quant_signal_sdk.models import SignalAction, SignalPayload
+from quant_signal_sdk.models import SignalAction, SignalPayload, SignalSide
 from quant_signal_sdk.network import NetworkClient
 from quant_signal_sdk.signing import generate_hmac_signature
 
@@ -60,7 +60,7 @@ class SignalPayloadValidationTest(unittest.TestCase):
     def test_should_reject_invalid_side(self) -> None:
         with self.assertRaises(ValidationError):
             SignalPayload(
-                side="INVALID",
+                side=cast(SignalSide, "INVALID"),
                 action=SignalAction.OPEN_LONG,
                 symbol="BTCUSDT",
                 confidence_score=0.9,
@@ -69,8 +69,8 @@ class SignalPayloadValidationTest(unittest.TestCase):
     def test_should_reject_invalid_action(self) -> None:
         with self.assertRaises(ValidationError):
             SignalPayload(
-                side="LONG",
-                action="BUY_NOW",
+                side=SignalSide.LONG,
+                action=cast(SignalAction, "BUY_NOW"),
                 symbol="BTCUSDT",
                 confidence_score=0.9,
             )
@@ -81,7 +81,7 @@ class NetworkClientRetryWiringTest(unittest.TestCase):
         session = requests.Session()
         _ = NetworkClient(retries=5, backoff_factor=0.75, session=session)
 
-        https_adapter = session.adapters["https://"]
+        https_adapter = cast(HTTPAdapter, session.adapters["https://"])
         self.assertIsInstance(https_adapter, HTTPAdapter)
         self.assertEqual(https_adapter.max_retries.total, 5)
         self.assertAlmostEqual(https_adapter.max_retries.backoff_factor, 0.75)
@@ -127,8 +127,8 @@ class QuantSignalClientRequestBuildTest(unittest.TestCase):
             network_client=fake_network,
         )
         signal = SignalPayload(
-            side="LONG",
-            action="OPEN_LONG",
+            side=SignalSide.LONG,
+            action=SignalAction.OPEN_LONG,
             symbol="BTCUSDT",
             tp=30000,
             sl=28000,

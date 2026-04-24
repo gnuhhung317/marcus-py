@@ -39,4 +39,4 @@ class SignalPayload(BaseModel):
         cleaned = symbol.replace("_", "").replace("-", "")
         if not cleaned.isalnum():
             raise ValueError("symbol must contain only letters, numbers, '_' or '-'")
-        return symbol
+        return cleaned
