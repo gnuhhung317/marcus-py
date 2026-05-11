@@ -1,11 +1,13 @@
 pydantic<3.0,>=2.7
 requests<3.0,>=2.32
 urllib3<3.0,>=2.2
-ccxt<6.0,>=4.0
 
 [dev]
-pytest<8.0,>=7.0
+pytest<9.0,>=8.0
 pytest-mock>=3.10
 pyright>=1.1
 build>=1.0
 twine>=4.0
+
+[market-data]
+ccxt<6.0,>=4.0

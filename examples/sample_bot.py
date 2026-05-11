@@ -38,9 +38,10 @@ def main():
     parser.add_argument("--long", type=int, default=15)
     parser.add_argument("--auth-token", default=None, help="Bearer web user token for registering the bot; not used to send signals")
     parser.add_argument("--bot-api-key", default=None, help="Bot API key; sent as X-Bot-Api-Key header")
+    parser.add_argument("--bot-signer-secret", default=None, help="Bot raw signer secret; used to compute X-Signature HMAC")
     args = parser.parse_args()
 
-    sdk_client = QuantSignalClient(base_url=args.base_url, api_key="")
+    sdk_client = QuantSignalClient(base_url=args.base_url, api_key="", signer_secret=args.bot_signer_secret)
     bot_api_key = args.bot_api_key
 
     if not bot_api_key:
@@ -50,12 +51,24 @@ def main():
 
         print(f"Registering bot '{args.bot_id}' at {args.base_url} ...")
         try:
-            resp = register_bot_via_client(sdk_client, args.bot_id, auth_token=args.auth_token)
-            print("Registered:", resp)
-            bot_api_key = resp.get("apiKey") or resp.get("rawSecret")
-            if not bot_api_key:
-                print("Registration succeeded but no bot key was returned.")
-                return
+                resp = register_bot_via_client(sdk_client, args.bot_id, auth_token=args.auth_token)
+                print("Registered:", resp)
+                # Backend returns both an apiKey and a rawSecret for the bot registration.
+                # Use `apiKey` as the runtime API key and `rawSecret` as the signer secret
+                # for HMAC signing. If the user didn't pass a signer secret initially,
+                # attach the returned rawSecret to the client so subsequent sends are
+                # signed correctly per server contract.
+                bot_api_key = resp.get("apiKey")
+                returned_raw_secret = resp.get("rawSecret")
+                if not bot_api_key and not returned_raw_secret:
+                    print("Registration succeeded but no bot key or secret was returned.")
+                    return
+                if returned_raw_secret and not args.bot_signer_secret:
+                    # attach signer secret to the existing client for subsequent sends
+                    # use public API instead of mutating private attribute
+                    sdk_client.set_signer_secret(returned_raw_secret)
+                # prefer apiKey for runtime; if missing fall back to rawSecret (compat)
+                bot_api_key = bot_api_key or returned_raw_secret
         except Exception as e:
             print("Register failed (continuing if bot exists):", e)
             return

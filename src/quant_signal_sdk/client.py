@@ -18,7 +18,6 @@ class QuantSignalClient:
         timeout_seconds: float = 10.0,
         signer_secret: str | None = None,
         signature_header: str = "X-Signature",
-        api_key_header: str = "X-API-Key",
         network_client: NetworkClientProtocol | None = None,
         bot_api_key_header: str = "X-Bot-Api-Key",
     ) -> None:
@@ -26,11 +25,25 @@ class QuantSignalClient:
         self._endpoint_path = endpoint_path if endpoint_path.startswith("/") else f"/{endpoint_path}"
         self._timeout_seconds = timeout_seconds
         self._api_key = api_key
-        self._api_key_header = api_key_header
         self._signer_secret = signer_secret
         self._signature_header = signature_header
         self._bot_api_key_header = bot_api_key_header
         self._network_client = network_client or NetworkClient()
+
+    def set_signer_secret(self, secret: str | None) -> None:
+        """Set or clear the signer secret used for HMAC signing of requests.
+
+        Prefer this public API over mutating the private attribute `_signer_secret`.
+        """
+        self._signer_secret = secret
+
+    def get_signer_secret(self) -> str | None:
+        """Return the currently configured signer secret, if any.
+
+        This accessor is primarily useful for tests and for callers that need
+        to confirm the client will sign requests.
+        """
+        return self._signer_secret
 
     def send_signal(self, signal: SignalPayload) -> dict[str, Any]:
         payload = signal.model_dump(mode="json", exclude_none=True)
@@ -56,7 +69,7 @@ class QuantSignalClient:
     def _build_headers(self, payload: Mapping[str, Any]) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            self._api_key_header: self._api_key,
+            self._bot_api_key_header: self._api_key,
         }
         if self._signer_secret:
             headers[self._signature_header] = generate_hmac_signature(payload, self._signer_secret)
@@ -64,13 +77,14 @@ class QuantSignalClient:
 
     def send_payload_with_bot_key(self, payload: Mapping[str, Any], bot_api_key: str, timeout_seconds: float | None = None) -> dict[str, Any]:
         json_payload = dict(payload)
+        timestamp = str(int(time.time() * 1000))
         headers = {
             "Content-Type": "application/json",
             self._bot_api_key_header: bot_api_key,
-            "X-Timestamp": str(int(time.time() * 1000)),
+            "X-Timestamp": timestamp,
         }
         if self._signer_secret:
-            headers[self._signature_header] = generate_hmac_signature(json_payload, self._signer_secret)
+            headers[self._signature_header] = generate_hmac_signature(json_payload, self._signer_secret, timestamp=timestamp)
         response = self._network_client.post_json(
             url=self._build_url(),
             headers=headers,

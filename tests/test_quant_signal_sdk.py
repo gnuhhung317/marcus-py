@@ -145,7 +145,7 @@ class QuantSignalClientRequestBuildTest(unittest.TestCase):
         call = fake_network.calls[0]
         self.assertEqual(call["url"], "https://api.marcus.test/api/v1/signals")
         self.assertEqual(call["timeout_seconds"], 15)
-        self.assertEqual(call["headers"]["X-API-Key"], "api-key-123")
+        self.assertEqual(call["headers"]["X-Bot-Api-Key"], "api-key-123")
         self.assertIn("X-Signature", call["headers"])
         self.assertEqual(call["headers"]["Content-Type"], "application/json")
         self.assertEqual(call["json_body"]["symbol"], "BTCUSDT")

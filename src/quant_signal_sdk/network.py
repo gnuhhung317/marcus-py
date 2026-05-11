@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Protocol
 
 import requests
@@ -52,9 +53,10 @@ class NetworkClient:
         json_body: dict[str, Any],
         timeout_seconds: float,
     ) -> Response:
+        canonical_body = json.dumps(json_body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         return self._session.post(
             url,
             headers=headers,
-            json=json_body,
+            data=canonical_body,
             timeout=timeout_seconds,
         )

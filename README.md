@@ -68,6 +68,19 @@ pip install -e .[dev,market-data]
 python -m unittest discover -s tests -v
 ```
 
+## Example: register -> signer secret behavior
+
+When registering a bot via the example `examples/sample_bot.py`, the backend returns
+both an `apiKey` (runtime API key) and a `rawSecret` (signer secret). The example
+attaches the returned `rawSecret` to the `QuantSignalClient` as the `signer_secret`
+when the user did not already supply one. This ensures subsequent signal POSTs
+include the required `X-Timestamp` and `X-Signature` headers that the server
+validates.
+
+If you prefer to manage signing secrets yourself, pass `--bot-signer-secret` to
+the example and the returned `rawSecret` will not overwrite it.
+
+
 ## Build
 ```bash
 python -m build --sdist --wheel

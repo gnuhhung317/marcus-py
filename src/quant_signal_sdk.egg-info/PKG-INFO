@@ -2,19 +2,27 @@ Metadata-Version: 2.4
 Name: quant-signal-sdk
 Version: 0.1.0
 Summary: Developer SDK for validating and publishing trading signals
+Author-email: Marcus SDK Team <dev@marcus.io>
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: pydantic<3.0,>=2.7
 Requires-Dist: requests<3.0,>=2.32
 Requires-Dist: urllib3<3.0,>=2.2
-Requires-Dist: ccxt<6.0,>=4.0
 Provides-Extra: dev
-Requires-Dist: pytest<8.0,>=7.0; extra == "dev"
+Requires-Dist: pytest<9.0,>=8.0; extra == "dev"
 Requires-Dist: pytest-mock>=3.10; extra == "dev"
 Requires-Dist: pyright>=1.1; extra == "dev"
 Requires-Dist: build>=1.0; extra == "dev"
 Requires-Dist: twine>=4.0; extra == "dev"
+Provides-Extra: market-data
+Requires-Dist: ccxt<6.0,>=4.0; extra == "market-data"
 Dynamic: license-file
 
 ﻿# Quant Signal SDK
@@ -58,13 +66,38 @@ print(result)
 - Python 3.10+
 
 ## Setup
+Install the library for local development:
+
 ```bash
 pip install -e .
+```
+
+Install with SDK development tools:
+
+```bash
+pip install -e .[dev]
+```
+
+Install optional market-data helpers:
+
+```bash
+pip install -e .[market-data]
+```
+
+Install both dev and market-data extras together:
+
+```bash
+pip install -e .[dev,market-data]
 ```
 
 ## Tests
 ```bash
 python -m unittest discover -s tests -v
+```
+
+## Build
+```bash
+python -m build --sdist --wheel
 ```
 
 ## Contract Fixtures
