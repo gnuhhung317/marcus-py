@@ -1,0 +1,1602 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+The content has been processed where content has been compressed (code blocks are separated by ⋮---- delimiter).
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: **/*.test.*, **/*.spec.*, **/node_modules/**, **/dist/**, **/.*/**, *.txt, *.toml, **.pyc
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Content has been compressed - code blocks are separated by ⋮---- delimiter
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.gitignore
+ARCHITECTURE.md
+CHANGELOG.md
+Dockerfile.bot
+examples/funding_arbitrage_evented.py
+examples/sample_bot.py
+examples/sniper_sdk_refactor.py
+funding_arb_portfolio.json
+GEMINI.MD
+LICENSE
+README.md
+src/quant_signal_sdk.egg-info/dependency_links.txt
+src/quant_signal_sdk.egg-info/PKG-INFO
+src/quant_signal_sdk.egg-info/requires.txt
+src/quant_signal_sdk.egg-info/SOURCES.txt
+src/quant_signal_sdk.egg-info/top_level.txt
+src/quant_signal_sdk/__init__.py
+src/quant_signal_sdk/adapters.py
+src/quant_signal_sdk/ccxt_client.py
+src/quant_signal_sdk/client.py
+src/quant_signal_sdk/core_strategy.py
+src/quant_signal_sdk/data_provider.py
+src/quant_signal_sdk/feature_engineer.py
+src/quant_signal_sdk/interfaces.py
+src/quant_signal_sdk/models.py
+src/quant_signal_sdk/network.py
+src/quant_signal_sdk/runner.py
+src/quant_signal_sdk/runtime/__init__.py
+src/quant_signal_sdk/runtime/adapters.py
+src/quant_signal_sdk/runtime/interfaces.py
+src/quant_signal_sdk/runtime/runner.py
+src/quant_signal_sdk/signing.py
+src/quant_signal_sdk/strategy.py
+src/quant_signal_sdk/translator.py
+tests/fixtures/contracts/sdk_signal_payload_v1.json
+tests/fixtures/contracts/sdk_signature_vector_v1.json
+tests/test_client.py
+tests/test_contract_compatibility_sdk.py
+tests/test_funding_arbitrage_bot.py
+tests/test_models.py
+tests/test_quant_signal_sdk.py
+tests/test_sample_bot_example.py
+tests/test_strategy.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="Dockerfile.bot">
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY examples ./examples
+
+RUN pip install --no-cache-dir -e ".[market-data]"
+</file>
+
+<file path="funding_arb_portfolio.json">
+{
+    "active_positions": {
+        "NEO/USDT:USDT": {
+            "amount": 5.31
+        }
+    },
+    "updated_at": "2026-05-25T00:55:28.689225+00:00"
+}
+</file>
+
+<file path="tests/test_funding_arbitrage_bot.py">
+class TestFundingArbitrageBot(unittest.TestCase)
+⋮----
+def test_feature_engineering_basic(self) -> None
+⋮----
+engineer = QuantFeatureEngineer()
+⋮----
+# Build mock dataframes
+idx = pd.date_range(end="2026-05-25 00:00:00", periods=200, freq="h")
+ohlcv = pd.DataFrame(
+funding = pd.DataFrame(
+⋮----
+features = engineer.calculate_features("BTC/USDT:USDT", ohlcv, funding)
+⋮----
+def test_arbitrage_bot_heuristic_ranking(self) -> None
+⋮----
+bot = ArbitrageBot(model_paths=[], features=[])
+⋮----
+feature_df = pd.DataFrame(
+⋮----
+ranked = bot.predict_scores(feature_df)
+⋮----
+# ETH has higher sum_funding_24h, so it should rank higher when sorting by predicted_score descending
+ranked_sorted = ranked.sort_values(by="predicted_score", ascending=False).reset_index(drop=True)
+⋮----
+def test_state_manager_portfolio(self) -> None
+⋮----
+tmp_path = tmp.name
+⋮----
+state_mgr = StateManager(filepath=tmp_path)
+# Empty state initially
+⋮----
+# Save portfolio
+test_pairs = {"BTC/USDT:USDT": 1.5, "ETH/USDT:USDT": 2.0}
+⋮----
+# Reload
+loaded = state_mgr.load_portfolio()
+⋮----
+@patch("quant_signal_sdk.client.QuantSignalClient.send_payload")
+    def test_dispatch_arbitrage_orders_sends_spot_and_future(self, mock_send_payload: MagicMock) -> None
+⋮----
+client = QuantSignalClient(base_url="http://localhost:8080", api_key="bot_key", default_bot_id="my_bot")
+⋮----
+# Should have sent 2 payloads: 1 SPOT, 1 FUTURE
+⋮----
+# Verify call arguments
+calls = mock_send_payload.call_args_list
+spot_payload = calls[0][0][0]
+future_payload = calls[1][0][0]
+⋮----
+# Verify Spot leg details
+⋮----
+# Verify Futures leg details
+⋮----
+def test_fetch_arbitrage_candidates(self) -> None
+⋮----
+mock_exchange = MagicMock()
+⋮----
+"SOL/USDT:USDT": {"swap": True, "active": True, "linear": True, "base": "SOL", "quote": "USDT"}, # No spot
+⋮----
+candidates = fetch_arbitrage_candidates(mock_exchange)
+⋮----
+# BTC and ETH have spot counterparts, SOL does not
+</file>
+
+<file path=".gitignore">
+__pycache__/
+</file>
+
+<file path="ARCHITECTURE.md">
+# Architecture Documentation: bot-framework-python
+
+## 1. Overview
+The `bot-framework-python` SDK is a lightweight Python library designed to facilitate communication between trading bots and a backend signaling API. It focuses on three core pillars: **Data Standardization** (Models), **Secure Authentication** (Signing), and **Reliable Delivery** (Network).
+
+## 2. Core Components
+
+### 2.1 QuantSignalClient (`src/quant_signal_sdk/client.py`)
+The primary entry point for the SDK. It orchestrates the process of:
+- Registering bots with the backend.
+- Preparing signals for transmission.
+- Coordinating with the signing and network modules to securely send data.
+
+### 2.2 Models (`src/quant_signal_sdk/models.py`)
+Utilizes `pydantic` for strict data validation.
+- **`SignalPayload`**: Ensures that every signal sent (Symbol, Side, Action, etc.) adheres to the required backend contract.
+- **Enums**: Defines standardized values for `SignalAction`, `SignalSide`, and `SignalType`.
+
+### 2.3 Signing (`src/quant_signal_sdk/signing.py`)
+Handles HMAC-SHA256 signature generation.
+- **Canonicalization**: Ensures JSON payloads are consistently formatted before signing to prevent verification failures due to whitespace or key ordering.
+- **Security**: Protects signal integrity and authenticates the bot to the backend.
+
+### 2.4 Network (`src/quant_signal_sdk/network.py`)
+A robust HTTP client wrapper using `requests`.
+- **Retry Logic**: Implements intelligent retry mechanisms to handle transient network issues.
+- **Consistency**: Provides a unified interface for all HTTP communication within the SDK.
+
+### 2.5 Strategy (`src/quant_signal_sdk/strategy.py`)
+Provides the `BaseStrategy` abstract class, allowing developers to implement custom trading logic while leveraging the SDK's built-in signal delivery capabilities.
+
+### 2.6 CCXT Integration (`src/quant_signal_sdk/ccxt_client.py`)
+An optional module providing pre-integrated support for the `ccxt` library, enabling bots to easily fetch market data from various exchanges.
+
+## 3. Main Execution Flow
+
+1.  **Initialization**: The bot initializes `QuantSignalClient` with its API Key and Secret.
+2.  **Data Acquisition**: The bot (potentially using `CCXTClient`) fetches market data (OHLCV).
+3.  **Signal Generation**: A `BaseStrategy` implementation processes the market data and produces a `SignalPayload`.
+4.  **Validation**: The `SignalPayload` is validated by Pydantic.
+5.  **Signing**: `QuantSignalClient` passes the payload to the `Signing` module, which generates a timestamped HMAC signature.
+6.  **Transmission**: The signed payload is passed to the `NetworkClient`, which performs an authenticated POST request to the Backend API.
+
+## 4. Engineering Standards & Insights
+- **Type Safety**: Heavy use of type hints and Pydantic models.
+- **Minimal Dependencies**: The core SDK is lightweight, with `ccxt` as an optional "extra".
+- **Extensibility**: Designed with inheritance in mind (`BaseStrategy`, `NetworkClient`) to allow for custom overrides.
+- **Contract Driven**: Directly tested against backend contract fixtures (`tests/fixtures/contracts/`) to ensure ongoing compatibility.
+</file>
+
+<file path="CHANGELOG.md">
+# Changelog
+
+## [0.1.0] - 2026-04-24
+
+### Added
+- Optional `market-data` extra for `ccxt`, with runtime guard and install instructions.
+- `QuantSignalClient` support for bot registration and bot-key payload submission.
+- SDK README install guidance and build/test commands.
+
+### Fixed
+- Pyright typing issues for `NetworkClient` protocol and test mocks.
+- `SignalPayload` symbol normalization and validation behavior.
+- CI workflow Python version matrix quoting.
+
+### Tested
+- `python -m unittest discover -s tests -v` passed successfully.
+</file>
+
+<file path="examples/funding_arbitrage_evented.py">
+#!/usr/bin/env python3
+"""Event-driven funding arbitrage example.
+
+This entrypoint demonstrates the new kernel wiring:
+Feed -> Strategy -> Dispatcher -> Runner.
+"""
+⋮----
+def build_parser() -> argparse.ArgumentParser
+⋮----
+parser = argparse.ArgumentParser(description="Event-driven funding arbitrage example")
+⋮----
+def load_initial_context(state_path: str | None) -> PortfolioContext
+⋮----
+path = Path(state_path)
+⋮----
+raw = json.loads(path.read_text(encoding="utf-8"))
+⋮----
+positions = raw.get("positions") or raw.get("active_positions") or {}
+hydrated_positions: dict[str, dict[str, Any]] = {}
+fallback_timestamp = raw.get("updated_at") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+⋮----
+def dump_context_snapshot(state_path: str, context: PortfolioContext) -> None
+⋮----
+payload = {
+⋮----
+def build_runner(args: argparse.Namespace) -> tuple[Runner, object]
+⋮----
+config = FundingArbitrageConfig(
+strategy = FundingArbitrageStrategy(bot_id=args.bot_id, config=config)
+initial_context = load_initial_context(args.state_json)
+⋮----
+dataframe = pd.read_csv(args.replay_csv)
+feed = ParquetReplayFeed(dataframe)
+⋮----
+feed = LiveRESTFeed(
+⋮----
+dispatcher = MockDispatcher()
+⋮----
+client = QuantSignalClient(
+dispatcher = LiveHTTPDispatcher(client, bot_api_key=args.bot_api_key)
+⋮----
+def after_signal_applied(_: SignalPayload, context: PortfolioContext) -> None
+⋮----
+runner = Runner(
+⋮----
+def main() -> None
+⋮----
+args = build_parser().parse_args()
+</file>
+
+<file path="examples/sniper_sdk_refactor.py">
+"""
+Clean Architecture Refactor: ML Sniper Bot powered by Quant Signal SDK.
+
+This version demonstrates how to leverage DataProvider, FeatureEngineer, 
+and the Boundary Guard (SignalTranslator) to achieve strict execution isolation.
+"""
+⋮----
+# Import our standardized SDK boundaries
+⋮----
+class CleanMlSniperBot
+⋮----
+# Instantiate foundational SDK guards
+⋮----
+# Placeholder for loading production ML model
+⋮----
+def _load_ml_model(self)
+⋮----
+# In production: self.model = joblib.load('selector.joblib')
+⋮----
+def _mock_ml_predict(self, features: pd.DataFrame) -> bool
+⋮----
+"""Simulated ML evaluation step."""
+⋮----
+# Example heuristic logic mapping to an ML outcome
+last_row = features.iloc[-1]
+# Fake logic: If closing above 20 SMA and having an ATR range
+⋮----
+def process_symbol(self, symbol: str, timeframe: str = "1h")
+⋮----
+"""Core orchestrated pipeline for a single symbol."""
+⋮----
+# STEP 1: Unified Data Retrieval (No manual API/file logic)
+df = self.data_provider.fetch_ohlcv(symbol, timeframe, limit=100)
+⋮----
+# STEP 2: Standardized Feature Engineering
+# Ensure train-set feature pipeline exactly matches run-set pipeline
+df = self.engineer.apply_pipeline(
+⋮----
+# STEP 3: Run Prediction intent
+is_buy_trigger = self._mock_ml_predict(df)
+⋮----
+# STEP 4: Boundary Guard Validation (The Safety Net)
+# Explicitly check for time-gaps BEFORE translating to financial intent.
+⋮----
+# STEP 5: Translate to backend payload shape
+# Calculating precise stop levels relying on engineered features (ATR)
+last_close = float(df.iloc[-1]["close"])
+current_atr = float(df.iloc[-1]["atr"])
+⋮----
+# Dynamic 2xATR stop loss calculation
+calculated_sl = last_close - (current_atr * 2.0)
+calculated_tp = last_close + (current_atr * 3.0)
+⋮----
+signal = SignalPayload(
+⋮----
+final_payload = self.translator.to_backend_payload(signal)
+⋮----
+# STEP 6: Safe Dispatch to Backend
+⋮----
+resp = self.client.send_payload(final_payload)
+⋮----
+def main()
+⋮----
+# Mock config (Use ENV in production)
+BASE_URL = "http://localhost:8080"
+BOT_API_KEY = os.getenv("MARCUS_BOT_API_KEY", "mock-api-key")
+⋮----
+# Initializing SDK Infrastructure
+sdk_client = QuantSignalClient(base_url=BASE_URL, api_key=BOT_API_KEY)
+data_src = CcxtDataProvider(exchange_id="binance")
+⋮----
+# Inject dependencies into Bot Orchestrator
+bot = CleanMlSniperBot(
+⋮----
+# Scan loop
+targets = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+⋮----
+time.sleep(1) # polite rate limit
+</file>
+
+<file path="GEMINI.MD">
+# Project Explorer Agent
+
+## Your role
+You are a senior software architect helping the owner understand this codebase deeply.
+Your job is NOT to answer questions — it is to proactively explore, map, and explain the system.
+Think like a new engineer doing their first week of onboarding.
+
+## Persona constraints
+- Be direct and specific. No vague summaries.
+- If you are uncertain about something, say "UNCLEAR — needs verification"
+- Never infer intent. Describe what code DOES, not what it was "meant" to do.
+- Flag every assumption you make.
+
+## Output language
+- Explain in Vietnamese (conversational tone)
+- Code references, file paths, class names stay in English
+- Use analogies when explaining abstract concepts
+
+## What you have access to
+- Full filesystem read access to this project
+- Ability to run: `find`, `grep`, `cat`, `tree`, `wc -l`
+- You may NOT modify any files unless explicitly told to
+
+## Exploration strategy (follow this order)
+1. Map the folder structure first
+2. Identify entry points (main, index, app, bootstrap)  
+3. Trace the primary request/data flow end-to-end
+4. Identify all external dependencies and integrations
+5. Document each module's responsibility in one sentence
+
+## Output format for each module
+```
+### [Module name]
+- **File**: path/to/file
+- **Responsibility**: (1 sentence)
+- **Depends on**: [list]
+- **Called by**: [list]
+- **Key decision**: any non-obvious design choice
+- **Risk/debt**: any smell, TODO, or fragile part
+```
+
+## What to do when you finish
+After full exploration, produce a file called `ARCHITECTURE.md` at project root.
+Structure it as: Overview → Module map → Data flow → External dependencies → Risk areas
+</file>
+
+<file path="LICENSE">
+MIT License
+
+Copyright (c) 2026 Your Organization
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</file>
+
+<file path="src/quant_signal_sdk.egg-info/dependency_links.txt">
+
+</file>
+
+<file path="src/quant_signal_sdk.egg-info/top_level.txt">
+quant_signal_sdk
+</file>
+
+<file path="src/quant_signal_sdk/adapters.py">
+__all__ = ["LiveHTTPDispatcher", "LiveRESTFeed", "MockDispatcher", "ParquetReplayFeed"]
+</file>
+
+<file path="src/quant_signal_sdk/ccxt_client.py">
+"""Small CCXT wrapper to fetch OHLCV data for strategies.
+
+`ccxt` is an optional dependency. If it's not installed the module will raise
+an ImportError with instructions to install the `market-data` extra.
+"""
+⋮----
+import ccxt  # type: ignore
+except Exception as exc:  # ImportError or other import-time errors
+ccxt = None  # type: ignore
+_CCXT_IMPORT_ERROR = exc
+⋮----
+class CCXTClient
+⋮----
+def __init__(self, exchange_id: str = "binance")
+⋮----
+# best-effort, some test envs may not allow network calls
+⋮----
+def fetch_ohlcv(self, symbol: str, timeframe: str = "1m", limit: int = 100) -> List[List[float]]
+⋮----
+"""Return OHLCV rows as provided by ccxt: [timestamp, open, high, low, close, volume]
+
+        Raises ccxt.BaseError on network / exchange errors.
+        """
+⋮----
+def close_prices_from_ohlcv(ohlcv: List[List[float]]) -> List[float]
+</file>
+
+<file path="src/quant_signal_sdk/core_strategy.py">
+@dataclass(slots=True)
+class FundingArbitrageConfig
+⋮----
+target_notional: float = 10.0
+min_hold_hours: float = 8.0
+open_funding_threshold: float = 0.0
+close_funding_threshold: float = 0.0
+leverage: int = 1
+margin_mode: MarginMode = MarginMode.CROSS
+⋮----
+class FundingArbitrageStrategy(BaseStrategy)
+⋮----
+def __init__(self, bot_id: str, config: FundingArbitrageConfig | None = None) -> None
+⋮----
+def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[SignalPayload]
+⋮----
+pair = self._extract_pair(event.payload)
+⋮----
+spot_symbol = self._normalize_symbol(pair["spot_symbol"])
+futures_symbol = self._normalize_symbol(pair["futures_symbol"])
+latest_price = self._extract_price(pair)
+funding_rate = self._extract_funding_rate(pair)
+⋮----
+spot_key = self._position_key(MarketType.SPOT, spot_symbol)
+futures_key = self._position_key(MarketType.FUTURE, futures_symbol)
+has_spot = spot_key in context.positions
+has_futures = futures_key in context.positions
+has_position = has_spot or has_futures
+⋮----
+position = context.positions.get(futures_key) or context.positions.get(spot_key)
+⋮----
+opened_at = position.get("generated_timestamp") or position.get("opened_at")
+⋮----
+opened_ts = opened_at if opened_at.tzinfo else opened_at.replace(tzinfo=timezone.utc)
+held_hours = (event.timestamp - opened_ts).total_seconds() / 3600.0
+⋮----
+amount = self._position_amount(price)
+metadata = self._metadata(spot_symbol, futures_symbol, funding_rate, price)
+⋮----
+def _extract_pair(self, payload: dict[str, Any]) -> dict[str, Any] | None
+⋮----
+spot = payload.get("spot")
+futures = payload.get("futures")
+funding = payload.get("funding")
+⋮----
+spot_symbol = str(spot.get("symbol") or "").strip()
+futures_symbol = str(futures.get("symbol") or "").strip()
+⋮----
+def _extract_price(self, pair: dict[str, Any]) -> float
+⋮----
+latest = source.get("latest")
+⋮----
+def _extract_funding_rate(self, pair: dict[str, Any]) -> float
+⋮----
+funding = pair["funding"]
+latest = funding.get("latest")
+⋮----
+raw_value = latest.get("fundingRate") or latest.get("funding_rate") or 0.0
+⋮----
+history = funding.get("history") or []
+⋮----
+raw_value = history[-1].get("fundingRate") or history[-1].get("funding_rate") or 0.0
+⋮----
+def _position_amount(self, price: float) -> float
+⋮----
+def _metadata(self, spot_symbol: str, futures_symbol: str, funding_rate: float, price: float) -> dict[str, Any]
+⋮----
+def _position_key(self, market_type: MarketType, symbol: str) -> str
+⋮----
+def _normalize_symbol(self, symbol: str) -> str
+</file>
+
+<file path="src/quant_signal_sdk/data_provider.py">
+class DataProvider(ABC)
+⋮----
+"""Abstract base class for market data sourcing."""
+⋮----
+@abstractmethod
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> pd.DataFrame
+⋮----
+"""Fetch OHLCV data and return as a Pandas DataFrame indexed by datetime."""
+⋮----
+class CcxtDataProvider(DataProvider)
+⋮----
+"""Concrete data provider sourcing data via CCXT."""
+⋮----
+def __init__(self, exchange_id: str = "binance", config: dict[str, Any] | None = None)
+⋮----
+ex_class = getattr(ccxt, exchange_id)
+⋮----
+def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> pd.DataFrame
+⋮----
+raw = self._exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+⋮----
+df = pd.DataFrame(
+</file>
+
+<file path="src/quant_signal_sdk/feature_engineer.py">
+class FeatureEngineer
+⋮----
+"""
+    Stateless orchestrator responsible for applying technical indicator transformations
+    upon a standardized Pandas DataFrame.
+    """
+⋮----
+@staticmethod
+    def calculate_sma(df: pd.DataFrame, column: str = "close", window: int = 14) -> pd.DataFrame
+⋮----
+"""Calculate Simple Moving Average."""
+df = df.copy()
+⋮----
+@staticmethod
+    def calculate_atr(df: pd.DataFrame, window: int = 14) -> pd.DataFrame
+⋮----
+"""Calculate Average True Range."""
+⋮----
+high = df["high"]
+low = df["low"]
+prev_close = df["close"].shift(1)
+⋮----
+tr1 = high - low
+tr2 = (high - prev_close).abs()
+tr3 = (low - prev_close).abs()
+⋮----
+tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+⋮----
+@staticmethod
+    def apply_pipeline(df: pd.DataFrame, *stages: Callable[[pd.DataFrame], pd.DataFrame]) -> pd.DataFrame
+⋮----
+"""Execute list of transformation pipeline stages sequentially."""
+res = df.copy()
+⋮----
+res = stage(res)
+</file>
+
+<file path="src/quant_signal_sdk/interfaces.py">
+__all__ = [
+</file>
+
+<file path="src/quant_signal_sdk/runner.py">
+__all__ = ["Runner"]
+</file>
+
+<file path="src/quant_signal_sdk/runtime/__init__.py">
+__all__ = [
+</file>
+
+<file path="src/quant_signal_sdk/runtime/adapters.py">
+logger = logging.getLogger(__name__)
+⋮----
+class LiveRESTFeed
+⋮----
+def stream(self) -> Iterator[MarketEvent]
+⋮----
+spot_ohlcv = self._exchange.fetch_ohlcv(self._spot_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
+futures_ohlcv = self._exchange.fetch_ohlcv(self._futures_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
+⋮----
+funding_history: list[Any] = []
+⋮----
+funding_history = self._exchange.fetch_funding_rate_history(self._futures_symbol, limit=self._funding_limit)
+⋮----
+timestamp = self._latest_timestamp(spot_ohlcv, futures_ohlcv)
+payload = {
+⋮----
+def _build_exchange(self) -> Any
+⋮----
+import ccxt  # type: ignore
+except Exception as exc:  # pragma: no cover - import guard
+⋮----
+exchange_class = getattr(ccxt, self._exchange_id)
+exchange = exchange_class(self._config)
+⋮----
+def _latest_timestamp(self, spot_ohlcv: list[Any], futures_ohlcv: list[Any]) -> datetime
+⋮----
+latest_ms = None
+⋮----
+candidate = rows[-1][0]
+⋮----
+latest_ms = candidate
+⋮----
+class LiveHTTPDispatcher
+⋮----
+def __init__(self, client: QuantSignalClient, bot_api_key: str | None = None) -> None
+⋮----
+def dispatch(self, signal: SignalPayload) -> None
+⋮----
+payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
+⋮----
+response = exc.response
+⋮----
+def _normalize_local_datetime(self, value: str) -> str
+⋮----
+class ParquetReplayFeed
+⋮----
+def __init__(self, dataframe: "pd.DataFrame", timestamp_column: str | None = None) -> None
+⋮----
+columns = list(self._dataframe.columns)
+timestamp_position = self._timestamp_position(columns)
+⋮----
+timestamp = self._extract_timestamp_from_tuple(row, timestamp_position)
+payload = self._payload_from_tuple(row, columns, timestamp_position)
+⋮----
+def _timestamp_position(self, columns: list[str]) -> int | None
+⋮----
+def _extract_timestamp_from_tuple(self, row: tuple[Any, ...], timestamp_position: int | None) -> datetime
+⋮----
+index_value = row[0]
+⋮----
+value = index_value.to_pydatetime()
+⋮----
+def _payload_from_tuple(self, row: tuple[Any, ...], columns: list[str], timestamp_position: int | None) -> dict[str, Any]
+⋮----
+payload: dict[str, Any] = {}
+⋮----
+value = row[position]
+⋮----
+def _coerce_timestamp(self, value: Any) -> datetime
+⋮----
+parsed_text = str(value).replace("Z", "+00:00")
+parsed = datetime.fromisoformat(parsed_text)
+⋮----
+class MockDispatcher
+⋮----
+def __init__(self) -> None
+⋮----
+def export_csv(self, file_path: str | Path) -> None
+⋮----
+path = Path(file_path)
+⋮----
+field_names = [
+⋮----
+writer = csv.DictWriter(handle, fieldnames=field_names)
+</file>
+
+<file path="src/quant_signal_sdk/runtime/interfaces.py">
+Signal: TypeAlias = SignalPayload
+⋮----
+@dataclass(frozen=True, slots=True)
+class MarketEvent
+⋮----
+timestamp: datetime
+payload: dict[str, Any]
+⋮----
+@dataclass(frozen=True, slots=True)
+class PortfolioContext
+⋮----
+positions: dict[str, Any] = field(default_factory=dict)
+⋮----
+class BaseFeed(Protocol)
+⋮----
+def stream(self) -> Iterator[MarketEvent]
+⋮----
+"""Yield ordered market events with no callbacks."""
+⋮----
+class BaseDispatcher(Protocol)
+⋮----
+def dispatch(self, signal: SignalPayload) -> None
+⋮----
+"""Execute side effects for a single signal."""
+⋮----
+class BaseStrategy(Protocol)
+⋮----
+def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[SignalPayload]
+⋮----
+"""Return signals for the current event and portfolio snapshot."""
+</file>
+
+<file path="src/quant_signal_sdk/runtime/runner.py">
+logger = logging.getLogger(__name__)
+⋮----
+class Runner
+⋮----
+@property
+    def context(self) -> PortfolioContext
+⋮----
+def run(self) -> PortfolioContext
+⋮----
+signals = self._strategy.on_event(event, self._snapshot_context())
+⋮----
+def _snapshot_context(self) -> PortfolioContext
+⋮----
+def _apply_signal(self, context: PortfolioContext, signal: SignalPayload) -> PortfolioContext
+⋮----
+positions = self._copy_positions(context.positions)
+position_key = self._position_key(signal)
+⋮----
+def _copy_positions(self, positions: dict[str, Any]) -> dict[str, Any]
+⋮----
+def _position_key(self, signal: SignalPayload) -> str
+⋮----
+def _build_position_state(self, signal: SignalPayload) -> dict[str, Any]
+⋮----
+side = "LONG" if signal.action == SignalAction.OPEN_LONG else "SHORT"
+</file>
+
+<file path="src/quant_signal_sdk/translator.py">
+class BoundaryValidationException(Exception)
+⋮----
+"""Raised when the data boundary contract is violated (e.g. time gaps detected)."""
+⋮----
+class RiskManager
+⋮----
+"""
+    Interface for calculating risk parameters like Stop Loss (SL) and Take Profit (TP).
+    Allows decoupling of risk calculation from signal transport/boundary layers.
+    """
+⋮----
+class PercentageRiskManager(RiskManager)
+⋮----
+"""Simple percentage-based SL/TP risk manager."""
+def __init__(self, sl_percent: float, tp_percent: float)
+⋮----
+sl = entry * (1.0 - self.sl_percent)
+tp = entry * (1.0 + self.tp_percent)
+⋮----
+sl = entry * (1.0 + self.sl_percent)
+tp = entry * (1.0 - self.tp_percent)
+⋮----
+class SignalTranslator
+⋮----
+"""
+    The Boundary Guard ensures a strategy's intent is validated at the data boundary
+    before it is serialized to the backend payload shape.
+    """
+⋮----
+def __init__(self, logger: logging.Logger | None = None)
+⋮----
+def validate_timeframe_integrity(self, df: pd.DataFrame, expected_timeframe: str)
+⋮----
+"""
+        Validate that candle timelines form a continuous contiguous sequence.
+        Raises BoundaryValidationException if large data gaps detected.
+        """
+⋮----
+# Perform raw index-diff analysis
+diffs = df.index.to_series().diff().dropna()
+mode_diff = diffs.mode()[0]
+⋮----
+last_diff = diffs.iloc[-1]
+⋮----
+# Tolerate dynamic diffs up to 1.5x interval mode
+⋮----
+def to_backend_payload(self, signal: SignalPayload) -> dict[str, Any]
+⋮----
+"""Serialize a validated signal model into the backend contract shape."""
+</file>
+
+<file path="tests/fixtures/contracts/sdk_signal_payload_v1.json">
+{
+  "signalId": "sig-contract-001",
+  "botId": "bot-contract-001",
+  "action": "OPEN_LONG",
+  "symbol": "BTCUSDT",
+  "marketType": "SPOT",
+  "orderType": "LIMIT",
+  "entry": 29000.0,
+  "stopLoss": 28000.0,
+  "takeProfit": 30000.0,
+  "amount": 0.01,
+  "leverage": 1,
+  "marginMode": "CROSS",
+  "reduceOnly": false,
+  "status": "RECEIVED",
+  "generatedTimestamp": "2026-04-01T12:00:00Z",
+  "timeframe": "1h",
+  "metadata": {
+    "strategy": "contract-fixture"
+  }
+}
+</file>
+
+<file path="tests/fixtures/contracts/sdk_signature_vector_v1.json">
+{
+  "payload": {
+    "symbol": "BTCUSDT",
+    "side": "LONG",
+    "action": "OPEN_LONG",
+    "confidence_score": 0.9
+  },
+  "secret": "dev-secret",
+  "signature": "554c259bafbb52125cd885546f81e07dbbab240b8c1e5df0aeab390b0e66581a"
+}
+</file>
+
+<file path="tests/test_models.py">
+def test_signalpayload_symbol_normalize_and_validation()
+⋮----
+s = SignalPayload(
+⋮----
+def test_signalpayload_invalid_entry_validation()
+⋮----
+def test_signalpayload_legacy_field_mapping()
+⋮----
+# Instantiate with legacy fields
+⋮----
+timestamp=1716500000000,  # millisecond timestamp
+⋮----
+# Assert correct translations
+⋮----
+# Check deprecation warnings
+⋮----
+warning_messages = [str(warn.message) for warn in w]
+</file>
+
+<file path="tests/test_sample_bot_example.py">
+class SampleBotExampleTest(unittest.TestCase)
+⋮----
+def test_register_returned_raw_secret_attaches_to_client_when_none(self) -> None
+⋮----
+# Simulate a client created without a signer_secret
+client = QuantSignalClient(base_url="http://localhost:8080", api_key="", signer_secret=None)
+⋮----
+# Simulate server response containing rawSecret but no apiKey
+returned_raw_secret = "sk_example_123"
+⋮----
+# Example logic: attach returned_raw_secret when client has no signer_secret
+</file>
+
+<file path="tests/test_strategy.py">
+def test_sma_insufficient_data()
+⋮----
+strat = SimpleSmaStrategy(short_window=3, long_window=5)
+⋮----
+def test_sma_generates_signal_open_long_and_short()
+⋮----
+strat = SimpleSmaStrategy(short_window=2, long_window=3)
+# prices where short MA > long MA -> OPEN_LONG
+payload = strat.generate_signal_payload("bot", [10, 11, 12, 13, 14])
+⋮----
+def test_percentage_risk_manager()
+⋮----
+rm = PercentageRiskManager(sl_percent=0.02, tp_percent=0.05)
+</file>
+
+<file path="src/quant_signal_sdk.egg-info/PKG-INFO">
+Metadata-Version: 2.4
+Name: quant-signal-sdk
+Version: 0.1.0
+Summary: Developer SDK for validating and publishing trading signals
+Author-email: Marcus SDK Team <dev@marcus.io>
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pydantic<3.0,>=2.7
+Requires-Dist: requests<3.0,>=2.32
+Requires-Dist: urllib3<3.0,>=2.2
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=8.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.10; extra == "dev"
+Requires-Dist: pyright>=1.1; extra == "dev"
+Requires-Dist: build>=1.0; extra == "dev"
+Requires-Dist: twine>=4.0; extra == "dev"
+Provides-Extra: market-data
+Requires-Dist: ccxt<6.0,>=4.0; extra == "market-data"
+Dynamic: license-file
+
+﻿# Quant Signal SDK
+
+This repository now contains only the developer SDK package: `quant_signal_sdk`.
+
+Local executor client code has been moved to `local-executor-client` in the workspace.
+
+## Features
+- Pydantic signal models and enums (`SignalPayload`, `SignalSide`, `SignalAction`).
+- Retry-enabled HTTP transport (`NetworkClient`) using `requests` and `urllib3.Retry`.
+- Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
+- High-level API client (`QuantSignalClient`) for authenticated signal submission.
+- Minimal `BaseStrategy` contract for strategy inheritance.
+
+## Quickstart
+```python
+from quant_signal_sdk import QuantSignalClient, SignalPayload
+
+client = QuantSignalClient(
+    base_url="https://api.example.com",
+    api_key="your-api-key",
+    signer_secret="optional-signing-secret",
+)
+
+signal = SignalPayload(
+    side="LONG",
+    action="OPEN_LONG",
+    symbol="BTCUSDT",
+    tp=72000,
+    sl=68500,
+    confidence_score=0.84,
+    metadata={"strategy": "trend_v1"},
+)
+
+result = client.send_signal(signal)
+print(result)
+```
+
+## Requirements
+- Python 3.10+
+
+## Setup
+Install the library for local development:
+
+```bash
+pip install -e .
+```
+
+Install with SDK development tools:
+
+```bash
+pip install -e .[dev]
+```
+
+Install optional market-data helpers:
+
+```bash
+pip install -e .[market-data]
+```
+
+Install both dev and market-data extras together:
+
+```bash
+pip install -e .[dev,market-data]
+```
+
+## Tests
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Build
+```bash
+python -m build --sdist --wheel
+```
+
+## Contract Fixtures
+- SDK fixtures are versioned under `tests/fixtures/contracts`.
+- SDK compatibility checks are in `tests/test_contract_compatibility_sdk.py`.
+</file>
+
+<file path="src/quant_signal_sdk.egg-info/requires.txt">
+pydantic<3.0,>=2.7
+requests<3.0,>=2.32
+urllib3<3.0,>=2.2
+
+[dev]
+pytest<9.0,>=8.0
+pytest-mock>=3.10
+pyright>=1.1
+build>=1.0
+twine>=4.0
+
+[market-data]
+ccxt<6.0,>=4.0
+</file>
+
+<file path="src/quant_signal_sdk.egg-info/SOURCES.txt">
+LICENSE
+README.md
+pyproject.toml
+src/quant_signal_sdk/__init__.py
+src/quant_signal_sdk/ccxt_client.py
+src/quant_signal_sdk/client.py
+src/quant_signal_sdk/models.py
+src/quant_signal_sdk/network.py
+src/quant_signal_sdk/signing.py
+src/quant_signal_sdk/strategy.py
+src/quant_signal_sdk.egg-info/PKG-INFO
+src/quant_signal_sdk.egg-info/SOURCES.txt
+src/quant_signal_sdk.egg-info/dependency_links.txt
+src/quant_signal_sdk.egg-info/requires.txt
+src/quant_signal_sdk.egg-info/top_level.txt
+tests/test_client.py
+tests/test_contract_compatibility_sdk.py
+tests/test_models.py
+tests/test_quant_signal_sdk.py
+tests/test_strategy.py
+</file>
+
+<file path="src/quant_signal_sdk/models.py">
+class SignalSide(str, Enum)
+⋮----
+LONG = "LONG"
+SHORT = "SHORT"
+⋮----
+class SignalAction(str, Enum)
+⋮----
+OPEN_LONG = "OPEN_LONG"
+OPEN_SHORT = "OPEN_SHORT"
+CLOSE_LONG = "CLOSE_LONG"
+CLOSE_SHORT = "CLOSE_SHORT"
+CLOSE = "CLOSE"
+⋮----
+class MarketType(str, Enum)
+⋮----
+SPOT = "SPOT"
+FUTURE = "FUTURE"
+MARGIN = "MARGIN"
+⋮----
+class OrderType(str, Enum)
+⋮----
+LIMIT = "LIMIT"
+MARKET = "MARKET"
+⋮----
+class MarginMode(str, Enum)
+⋮----
+CROSS = "CROSS"
+ISOLATED = "ISOLATED"
+⋮----
+class SignalStatus(str, Enum)
+⋮----
+RECEIVED = "RECEIVED"
+VALIDATED = "VALIDATED"
+BROADCASTED = "BROADCASTED"
+DISPATCHED = "DISPATCHED"
+ACKNOWLEDGED = "ACKNOWLEDGED"
+EXPIRED = "EXPIRED"
+FAILED_DELIVERY = "FAILED_DELIVERY"
+FAILED = "FAILED"
+⋮----
+class SignalPayload(BaseModel)
+⋮----
+model_config = ConfigDict(extra="forbid", populate_by_name=True)
+⋮----
+signal_id: str | None = Field(default=None, alias="signalId")
+bot_id: str | None = Field(default=None, alias="botId")
+action: SignalAction
+symbol: str = Field(min_length=2, max_length=24)
+market_type: MarketType = Field(alias="marketType")
+order_type: OrderType = Field(alias="orderType")
+entry: float | None = Field(default=None, gt=0)
+stop_loss: float | None = Field(default=None, gt=0, alias="stopLoss")
+take_profit: float | None = Field(default=None, gt=0, alias="takeProfit")
+amount: float | None = Field(default=None, gt=0)
+leverage: int | None = Field(default=None, ge=1, le=125)
+margin_mode: MarginMode | None = Field(default=None, alias="marginMode")
+reduce_only: bool | None = Field(default=None, alias="reduceOnly")
+status: SignalStatus | None = None
+generated_timestamp: datetime = Field(
+timeframe: str | None = None
+metadata: dict[str, Any] = Field(default_factory=dict)
+⋮----
+@model_validator(mode="before")
+@classmethod
+    def handle_legacy_fields(cls, data: Any) -> Any
+⋮----
+warnings_issued = []
+⋮----
+val = data.pop("timestamp")
+⋮----
+dt = datetime.fromtimestamp(val / 1000.0, timezone.utc)
+⋮----
+dt = datetime.fromtimestamp(val, timezone.utc)
+⋮----
+side_val = data.pop("side")
+⋮----
+conf_val = data.pop("confidence_score")
+⋮----
+@field_validator("symbol")
+@classmethod
+    def normalize_symbol(cls, value: str) -> str
+⋮----
+symbol = value.strip().upper()
+cleaned = symbol.replace("_", "").replace("-", "")
+</file>
+
+<file path="src/quant_signal_sdk/signing.py">
+def _canonical_json(payload: Mapping[str, Any]) -> str
+⋮----
+def generate_hmac_signature(payload: Mapping[str, Any], secret: str, timestamp: str | None = None) -> str
+⋮----
+message_text = _canonical_json(payload)
+⋮----
+message_text = f"{timestamp}\n{message_text}"
+message = message_text.encode("utf-8")
+key = secret.encode("utf-8")
+</file>
+
+<file path="src/quant_signal_sdk/strategy.py">
+"""Simple strategy implementations for demo bots.
+
+Includes a simple SMA crossover strategy that emits OPEN_LONG/OPEN_SHORT signals.
+"""
+⋮----
+class SimpleSmaStrategy
+⋮----
+def __init__(self, short_window: int = 5, long_window: int = 15)
+⋮----
+def decide(self, close_prices: List[float]) -> Optional[str]
+⋮----
+"""Return action string: 'OPEN_LONG' or 'OPEN_SHORT' or None if insufficient data."""
+⋮----
+short_ma = mean(close_prices[-self.short_window:])
+long_ma = mean(close_prices[-self.long_window:])
+⋮----
+def generate_signal_payload(self, bot_id: str, close_prices: List[float])
+⋮----
+action = self.decide(close_prices)
+⋮----
+entry = close_prices[-1]
+⋮----
+class BaseStrategy(ABC)
+⋮----
+@abstractmethod
+    def on_market_data(self, tick: Mapping[str, Any]) -> SignalPayload | None
+⋮----
+"""Return a signal when conditions are met, otherwise None."""
+⋮----
+async def on_market_data_async(self, tick: Mapping[str, Any]) -> SignalPayload | None
+</file>
+
+<file path="tests/test_contract_compatibility_sdk.py">
+# pyright: reportMissingImports=false
+⋮----
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "contracts"
+⋮----
+def _load_fixture(name: str) -> dict[str, Any]
+⋮----
+fixture_path = FIXTURE_DIR / name
+⋮----
+class SdkContractFixtureTest(unittest.TestCase)
+⋮----
+def test_should_match_sdk_signal_payload_contract_fixture(self) -> None
+⋮----
+expected = _load_fixture("sdk_signal_payload_v1.json")
+payload = SignalPayload(
+⋮----
+def test_should_match_hmac_signature_vector_fixture(self) -> None
+⋮----
+vector = _load_fixture("sdk_signature_vector_v1.json")
+signature = generate_hmac_signature(vector["payload"], vector["secret"])
+</file>
+
+<file path="examples/sample_bot.py">
+"""Example SMA bot moved to examples/ for documentation and demos.
+
+Usage:
+    python examples/sample_bot.py --base-url http://localhost:8080 --bot-id demo-sma
+
+This script is the same as the demo used during development but is not exported
+as part of the runtime SDK public API.
+"""
+⋮----
+def register_bot_via_client(client: QuantSignalClient, bot_id: str, name: str | None = None, auth_token: str | None = None, bot_api_key: str | None = None)
+⋮----
+payload = {
+⋮----
+def send_signal_via_client(client: QuantSignalClient, payload: dict, bot_api_key: str | None = None)
+⋮----
+def build_signal_payload(symbol: str, raw_payload: dict, short_window: int, long_window: int) -> SignalPayload
+⋮----
+symbol_normalized = symbol.replace("/", "").replace("_", "").replace("-", "").upper()
+raw_timestamp = raw_payload["generatedTimestamp"]
+⋮----
+def main()
+⋮----
+parser = argparse.ArgumentParser()
+⋮----
+args = parser.parse_args()
+⋮----
+sdk_client = QuantSignalClient(base_url=args.base_url, api_key="", signer_secret=args.bot_signer_secret)
+bot_api_key = args.bot_api_key
+⋮----
+resp = register_bot_via_client(sdk_client, args.bot_id, auth_token=args.auth_token)
+⋮----
+# Backend returns both an apiKey and a rawSecret for the bot registration.
+# Use `apiKey` as the runtime API key and `rawSecret` as the signer secret
+# for HMAC signing. If the user didn't pass a signer secret initially,
+# attach the returned rawSecret to the client so subsequent sends are
+# signed correctly per server contract.
+bot_api_key = resp.get("apiKey")
+returned_raw_secret = resp.get("rawSecret")
+⋮----
+# attach signer secret to the existing client for subsequent sends
+# use public API instead of mutating private attribute
+⋮----
+# prefer apiKey for runtime; if missing fall back to rawSecret (compat)
+bot_api_key = bot_api_key or returned_raw_secret
+⋮----
+client = CCXTClient(exchange_id=args.exchange)
+⋮----
+ohlcv = client.fetch_ohlcv(args.symbol, timeframe=args.timeframe, limit=args.long + 10)
+closes = close_prices_from_ohlcv(ohlcv)
+⋮----
+strat = SimpleSmaStrategy(short_window=args.short, long_window=args.long)
+raw_payload = strat.generate_signal_payload(args.bot_id, closes)
+⋮----
+signal = build_signal_payload(
+⋮----
+payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
+⋮----
+result = send_signal_via_client(sdk_client, payload, bot_api_key=bot_api_key)
+</file>
+
+<file path="src/quant_signal_sdk/network.py">
+RETRY_STATUS_CODES = (500, 502, 503, 504)
+⋮----
+class NetworkClientProtocol(Protocol)
+⋮----
+class NetworkClient
+⋮----
+retry_policy = Retry(
+adapter = HTTPAdapter(max_retries=retry_policy)
+⋮----
+canonical_body = json.dumps(json_body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+</file>
+
+<file path="tests/test_client.py">
+class FakeResponse
+⋮----
+def __init__(self, content: bytes = b'{"result":"ok"}')
+⋮----
+def raise_for_status(self) -> None
+⋮----
+def json(self)
+⋮----
+class DummyNetworkClient
+⋮----
+def __init__(self)
+⋮----
+def test_send_payload_with_bot_key_sets_header_and_returns_json()
+⋮----
+net = DummyNetworkClient()
+client = QuantSignalClient(base_url="http://localhost:8080", api_key="user-key", network_client=net)
+⋮----
+payload = {"signal": "x"}
+result = client.send_payload_with_bot_key(payload, bot_api_key="bot-abc-123")
+⋮----
+call = net.calls[0]
+⋮----
+def test_send_payload_with_bot_key_signs_payload_when_secret_is_set()
+⋮----
+client = QuantSignalClient(
+⋮----
+def test_send_signal_auto_injects_ids_from_client_context()
+⋮----
+signal = SignalPayload(
+⋮----
+response = client.send_signal(signal)
+⋮----
+def test_register_bot_sends_auth_or_bot_key_header()
+⋮----
+# auth token path
+resp1 = client.register_bot({"botId": "b1"}, auth_token="auth-xyz")
+⋮----
+# bot api key path
+resp2 = client.register_bot({"botId": "b2"}, bot_api_key="bot-key-456")
+⋮----
+def test_send_heartbeat_sends_post_with_bot_api_key()
+⋮----
+# test case 1: use defaults
+result = client.send_heartbeat()
+⋮----
+# test case 2: override bot_id and api_key
+result2 = client.send_heartbeat(bot_id="override-bot", bot_api_key="override-key")
+⋮----
+call2 = net.calls[1]
+⋮----
+def test_heartbeat_loop_starts_and_stops()
+⋮----
+# Give it a tiny bit of time to make the initial call
+</file>
+
+<file path="tests/test_quant_signal_sdk.py">
+# pyright: reportMissingImports=false
+⋮----
+class _FakeResponse
+⋮----
+def __init__(self, payload: dict[str, Any]) -> None
+⋮----
+def raise_for_status(self) -> None
+⋮----
+def json(self) -> dict[str, Any]
+⋮----
+class _FakeNetworkClient
+⋮----
+def __init__(self) -> None
+⋮----
+class SignalPayloadValidationTest(unittest.TestCase)
+⋮----
+def test_should_reject_invalid_symbol(self) -> None
+⋮----
+def test_should_reject_invalid_action(self) -> None
+⋮----
+class NetworkClientRetryWiringTest(unittest.TestCase)
+⋮----
+def test_should_mount_retry_enabled_http_adapters(self) -> None
+⋮----
+session = requests.Session()
+_ = NetworkClient(retries=5, backoff_factor=0.75, session=session)
+⋮----
+https_adapter = cast(HTTPAdapter, session.adapters["https://"])
+⋮----
+def test_should_wire_mount_calls_for_mocked_session(self) -> None
+⋮----
+mock_session = MagicMock()
+_ = NetworkClient(session=mock_session)
+⋮----
+class SignatureGenerationTest(unittest.TestCase)
+⋮----
+def test_should_generate_deterministic_hmac_signature(self) -> None
+⋮----
+payload_a = {
+payload_b = {
+⋮----
+sig_a = generate_hmac_signature(payload_a, "dev-secret")
+sig_b = generate_hmac_signature(payload_b, "dev-secret")
+⋮----
+class QuantSignalClientRequestBuildTest(unittest.TestCase)
+⋮----
+def test_should_build_endpoint_headers_and_body_when_sending_signal(self) -> None
+⋮----
+fake_network = _FakeNetworkClient()
+client = QuantSignalClient(
+signal = SignalPayload(
+⋮----
+response = client.send_signal(signal)
+⋮----
+call = fake_network.calls[0]
+</file>
+
+<file path="README.md">
+# Quant Signal SDK
+
+This repository now contains only the developer SDK package: `quant_signal_sdk`.
+
+Local executor client code has been moved to `local-executor-client` in the workspace.
+
+## Features
+- Pydantic signal models and enums (`SignalPayload`, `SignalSide`, `SignalAction`).
+- Retry-enabled HTTP transport (`NetworkClient`) using `requests` and `urllib3.Retry`.
+- Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
+- High-level API client (`QuantSignalClient`) for authenticated signal submission.
+- Minimal `BaseStrategy` contract for strategy inheritance.
+
+## Quickstart
+```python
+from quant_signal_sdk import QuantSignalClient, SignalPayload
+
+client = QuantSignalClient(
+    base_url="https://api.example.com",
+    api_key="your-api-key",
+    signer_secret="optional-signing-secret",
+)
+
+signal = SignalPayload(
+    side="LONG",
+    action="OPEN_LONG",
+    symbol="BTCUSDT",
+    tp=72000,
+    sl=68500,
+    confidence_score=0.84,
+    metadata={"strategy": "trend_v1"},
+)
+
+result = client.send_signal(signal)
+print(result)
+```
+
+## Requirements
+- Python 3.10+
+
+## Setup
+Install the library for local development:
+
+```bash
+pip install -e .
+```
+
+Install with SDK development tools:
+
+```bash
+pip install -e .[dev]
+```
+
+Install optional market-data helpers:
+
+```bash
+pip install -e .[market-data]
+```
+
+Install both dev and market-data extras together:
+
+```bash
+pip install -e .[dev,market-data]
+```
+
+## Tests
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Example: register -> signer secret behavior
+
+When registering a bot via the example `examples/sample_bot.py`, the backend returns
+both an `apiKey` (runtime API key) and a `rawSecret` (signer secret). The example
+attaches the returned `rawSecret` to the `QuantSignalClient` as the `signer_secret`
+when the user did not already supply one. This ensures subsequent signal POSTs
+include the required `X-Timestamp` and `X-Signature` headers that the server
+validates.
+
+If you prefer to manage signing secrets yourself, pass `--bot-signer-secret` to
+the example and the returned `rawSecret` will not overwrite it.
+
+
+## Build
+```bash
+python -m build --sdist --wheel
+```
+
+## Contract Fixtures
+- SDK fixtures are versioned under `tests/fixtures/contracts`.
+- SDK compatibility checks are in `tests/test_contract_compatibility_sdk.py`.
+</file>
+
+<file path="src/quant_signal_sdk/__init__.py">
+"""Public API for quant_signal_sdk.
+
+The package intentionally exposes a minimal surface area: `QuantSignalClient`,
+the `SignalPayload` model and enums, `BaseStrategy`, and the `generate_hmac_signature`
+helper. Example/demo bots and heavy deps (CCXT usage) live under `examples/`.
+"""
+⋮----
+__all__ = [
+</file>
+
+<file path="src/quant_signal_sdk/client.py">
+class QuantSignalClient
+⋮----
+def set_signer_secret(self, secret: str | None) -> None
+⋮----
+"""Set or clear the signer secret used for HMAC signing of requests.
+
+        Prefer this public API over mutating the private attribute `_signer_secret`.
+        """
+⋮----
+def get_signer_secret(self) -> str | None
+⋮----
+"""Return the currently configured signer secret, if any.
+
+        This accessor is primarily useful for tests and for callers that need
+        to confirm the client will sign requests.
+        """
+⋮----
+def set_default_bot_id(self, bot_id: str | None) -> None
+⋮----
+"""Set or clear the default bot id used when a payload omits botId."""
+⋮----
+def get_default_bot_id(self) -> str | None
+⋮----
+"""Return the client-context bot id, if one has been configured."""
+⋮----
+def send_signal(self, signal: SignalPayload) -> dict[str, Any]
+⋮----
+payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
+⋮----
+def send_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]
+⋮----
+json_payload = dict(payload)
+⋮----
+ts_val = json_payload.pop("generated_timestamp")
+⋮----
+headers = self._build_headers(json_payload)
+response = self._network_client.post_json(
+⋮----
+def _build_url(self) -> str
+⋮----
+def _build_headers(self, payload: Mapping[str, Any]) -> dict[str, str]
+⋮----
+timestamp = str(int(time.time() * 1000))
+headers = {
+⋮----
+def send_payload_with_bot_key(self, payload: Mapping[str, Any], bot_api_key: str, timeout_seconds: float | None = None) -> dict[str, Any]
+⋮----
+def register_bot(self, bot_payload: Mapping[str, Any], auth_token: str | None = None, bot_api_key: str | None = None) -> dict[str, Any]
+⋮----
+"""Register a bot via POST /api/v1/bots. Sends either Authorization or bot API key header when provided."""
+json_payload = dict(bot_payload)
+headers: dict[str, str] = {"Content-Type": "application/json"}
+⋮----
+def send_heartbeat(self, bot_id: str | None = None, bot_api_key: str | None = None) -> dict[str, Any]
+⋮----
+"""Send a heartbeat to the server for a specific bot."""
+target_bot_id = bot_id or self._default_bot_id
+⋮----
+target_api_key = bot_api_key or self._api_key
+⋮----
+url = f"{self._base_url}/api/v1/bots/{target_bot_id}/heartbeat"
+⋮----
+def start_heartbeat_loop(self, interval_seconds: float = 300.0, bot_id: str | None = None, bot_api_key: str | None = None) -> None
+⋮----
+"""Start a background daemon thread that periodically sends heartbeats to the server."""
+⋮----
+def _loop()
+⋮----
+def stop_heartbeat_loop(self) -> None
+⋮----
+"""Stop the background heartbeat thread if it is running."""
+</file>
+
+</files>

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from ..models import SignalAction, SignalPayload, SignalStatus
 from .interfaces import BaseDispatcher, BaseFeed, BaseStrategy, PortfolioContext
+
+
+logger = logging.getLogger(__name__)
 
 
 class Runner:
@@ -30,7 +34,12 @@ class Runner:
         for event in self._feed.stream():
             signals = self._strategy.on_event(event, self._snapshot_context())
             for signal in signals:
-                self._dispatcher.dispatch(signal)
+                try:
+                    self._dispatcher.dispatch(signal)
+                except Exception:
+                    logger.exception("Dispatch failed for signalId=%s botId=%s symbol=%s", signal.signal_id, signal.bot_id, signal.symbol)
+                    continue
+
                 self._context = self._apply_signal(self._context, signal)
                 if self._after_signal_applied is not None:
                     self._after_signal_applied(signal, self._context)

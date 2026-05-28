@@ -11,7 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from quant_signal_sdk.models import SignalAction, SignalPayload, SignalSide
+from quant_signal_sdk.models import MarginMode, MarketType, OrderType, SignalAction, SignalPayload, SignalStatus
 from quant_signal_sdk.signing import generate_hmac_signature
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "contracts"
@@ -26,17 +26,26 @@ class SdkContractFixtureTest(unittest.TestCase):
     def test_should_match_sdk_signal_payload_contract_fixture(self) -> None:
         expected = _load_fixture("sdk_signal_payload_v1.json")
         payload = SignalPayload(
-            side=SignalSide.LONG,
+            signal_id="sig-contract-001",
+            bot_id="bot-contract-001",
             action=SignalAction.OPEN_LONG,
             symbol="BTCUSDT",
-            tp=30000,
-            sl=28000,
-            confidence_score=0.82,
+            market_type=MarketType.SPOT,
+            order_type=OrderType.LIMIT,
+            entry=29000,
+            stop_loss=28000,
+            take_profit=30000,
+            amount=0.01,
+            leverage=1,
+            margin_mode=MarginMode.CROSS,
+            reduce_only=False,
+            status=SignalStatus.RECEIVED,
+            generated_timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+            timeframe="1h",
             metadata={"strategy": "contract-fixture"},
-            timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
 
-        self.assertEqual(payload.model_dump(mode="json", exclude_none=True), expected)
+        self.assertEqual(payload.model_dump(mode="json", by_alias=True, exclude_none=True), expected)
 
     def test_should_match_hmac_signature_vector_fixture(self) -> None:
         vector = _load_fixture("sdk_signature_vector_v1.json")

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import csv
+import logging
 from datetime import datetime, timezone
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
+
+import requests
 
 from ..client import QuantSignalClient
 from ..models import SignalPayload
@@ -12,6 +15,9 @@ from .interfaces import MarketEvent
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 
 class LiveRESTFeed:
@@ -100,10 +106,26 @@ class LiveHTTPDispatcher:
 
     def dispatch(self, signal: SignalPayload) -> None:
         payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
-        if self._bot_api_key:
-            self._client.send_payload_with_bot_key(payload, bot_api_key=self._bot_api_key)
-            return
-        self._client.send_signal(signal)
+        if "generatedTimestamp" in payload and isinstance(payload["generatedTimestamp"], str):
+            payload["generatedTimestamp"] = self._normalize_local_datetime(payload["generatedTimestamp"])
+        try:
+            if self._bot_api_key:
+                self._client.send_payload_with_bot_key(payload, bot_api_key=self._bot_api_key)
+                return
+            self._client.send_signal(signal)
+        except requests.HTTPError as exc:
+            response = exc.response
+            logger.error(
+                "Signal dispatch failed status=%s url=%s body=%s payload=%s",
+                getattr(response, "status_code", None),
+                getattr(response, "url", None),
+                getattr(response, "text", ""),
+                payload,
+            )
+            raise
+
+    def _normalize_local_datetime(self, value: str) -> str:
+        return value.replace("Z", "").replace("+00:00", "")
 
 
 class ParquetReplayFeed:

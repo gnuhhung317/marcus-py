@@ -7,7 +7,9 @@ This script is the same as the demo used during development but is not exported
 as part of the runtime SDK public API.
 """
 import argparse
+from datetime import datetime, timezone
 from quant_signal_sdk.ccxt_client import CCXTClient, close_prices_from_ohlcv
+from quant_signal_sdk.models import MarginMode, MarketType, OrderType, SignalAction, SignalPayload, SignalStatus
 from quant_signal_sdk.strategy import SimpleSmaStrategy
 from quant_signal_sdk.client import QuantSignalClient
 
@@ -25,6 +27,34 @@ def send_signal_via_client(client: QuantSignalClient, payload: dict, bot_api_key
     if bot_api_key:
         return client.send_payload_with_bot_key(payload, bot_api_key=bot_api_key)
     return client.send_payload(payload)
+
+
+def build_signal_payload(symbol: str, raw_payload: dict, short_window: int, long_window: int) -> SignalPayload:
+    symbol_normalized = symbol.replace("/", "").replace("_", "").replace("-", "").upper()
+    raw_timestamp = raw_payload["generatedTimestamp"]
+    return SignalPayload(
+        signal_id=raw_payload["signalId"],
+        bot_id=raw_payload["botId"],
+        action=SignalAction(raw_payload["action"]),
+        symbol=symbol_normalized,
+        market_type=MarketType.SPOT,
+        order_type=OrderType.LIMIT,
+        entry=round(float(raw_payload["entry"]), 2),
+        stop_loss=round(float(raw_payload["stopLoss"]), 2),
+        take_profit=round(float(raw_payload["takeProfit"]), 2),
+        amount=None,
+        leverage=None,
+        margin_mode=None,
+        reduce_only=False,
+        status=SignalStatus.RECEIVED,
+        generated_timestamp=datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00")).astimezone(timezone.utc),
+        timeframe="1m",
+        metadata={
+            "strategy": "sma",
+            "short": short_window,
+            "long": long_window,
+        },
+    )
 
 
 def main():
@@ -82,11 +112,19 @@ def main():
         return
 
     strat = SimpleSmaStrategy(short_window=args.short, long_window=args.long)
-    payload = strat.generate_signal_payload(args.bot_id, closes)
-    if payload is None:
+    raw_payload = strat.generate_signal_payload(args.bot_id, closes)
+    if raw_payload is None:
         print("Insufficient data to generate signal")
         return
 
+    signal = build_signal_payload(
+        symbol=args.symbol,
+        raw_payload=raw_payload,
+        short_window=args.short,
+        long_window=args.long,
+    )
+
+    payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
     print("Sending signal:", payload)
     try:
         result = send_signal_via_client(sdk_client, payload, bot_api_key=bot_api_key)

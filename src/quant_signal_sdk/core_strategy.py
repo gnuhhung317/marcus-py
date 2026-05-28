@@ -28,8 +28,8 @@ class FundingArbitrageStrategy(BaseStrategy):
         if pair is None:
             return []
 
-        spot_symbol = pair["spot_symbol"]
-        futures_symbol = pair["futures_symbol"]
+        spot_symbol = self._normalize_symbol(pair["spot_symbol"])
+        futures_symbol = self._normalize_symbol(pair["futures_symbol"])
         latest_price = self._extract_price(pair)
         funding_rate = self._extract_funding_rate(pair)
 
@@ -232,4 +232,7 @@ class FundingArbitrageStrategy(BaseStrategy):
         }
 
     def _position_key(self, market_type: MarketType, symbol: str) -> str:
-        return f"{market_type.value}:{symbol}"
+        return f"{market_type.value}:{self._normalize_symbol(symbol)}"
+
+    def _normalize_symbol(self, symbol: str) -> str:
+        return symbol.replace("/", "").replace("_", "").replace("-", "").split(":")[0].upper()

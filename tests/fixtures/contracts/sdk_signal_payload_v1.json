@@ -1,12 +1,21 @@
 {
-  "side": "LONG",
+  "signalId": "sig-contract-001",
+  "botId": "bot-contract-001",
   "action": "OPEN_LONG",
   "symbol": "BTCUSDT",
-  "tp": 30000.0,
-  "sl": 28000.0,
-  "confidence_score": 0.82,
+  "marketType": "SPOT",
+  "orderType": "LIMIT",
+  "entry": 29000.0,
+  "stopLoss": 28000.0,
+  "takeProfit": 30000.0,
+  "amount": 0.01,
+  "leverage": 1,
+  "marginMode": "CROSS",
+  "reduceOnly": false,
+  "status": "RECEIVED",
+  "generatedTimestamp": "2026-04-01T12:00:00Z",
+  "timeframe": "1h",
   "metadata": {
     "strategy": "contract-fixture"
-  },
-  "timestamp": "2026-04-01T12:00:00Z"
+  }
 }

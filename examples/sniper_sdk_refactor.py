@@ -11,6 +11,8 @@ import os
 import time
 import logging
 import pandas as pd
+from datetime import datetime, timezone
+from uuid import uuid4
 from typing import List, Any
 from pathlib import Path
 
@@ -19,6 +21,11 @@ from quant_signal_sdk import (
     QuantSignalClient,
     CcxtDataProvider,
     FeatureEngineer,
+    MarketType,
+    OrderType,
+    SignalAction,
+    SignalPayload,
+    SignalStatus,
     SignalTranslator,
     BoundaryValidationException
 )
@@ -90,7 +97,7 @@ class CleanMlSniperBot:
             # Explicitly check for time-gaps BEFORE translating to financial intent.
             self.translator.validate_timeframe_integrity(df, timeframe)
             
-            # STEP 5: Translate to absolute Payload
+            # STEP 5: Translate to backend payload shape
             # Calculating precise stop levels relying on engineered features (ATR)
             last_close = float(df.iloc[-1]["close"])
             current_atr = float(df.iloc[-1]["atr"])
@@ -99,19 +106,30 @@ class CleanMlSniperBot:
             calculated_sl = last_close - (current_atr * 2.0)
             calculated_tp = last_close + (current_atr * 3.0)
             
-            final_payload = self.translator.compile_absolute_payload(
+            signal = SignalPayload(
+                signal_id=f"sig_{uuid4().hex[:10]}",
                 bot_id=self.bot_id,
+                action=SignalAction.OPEN_LONG,
                 symbol=symbol,
-                action="OPEN_LONG",
+                market_type=MarketType.SPOT,
+                order_type=OrderType.LIMIT,
+                entry=last_close,
+                stop_loss=calculated_sl,
+                take_profit=calculated_tp,
+                amount=None,
+                leverage=None,
+                margin_mode=None,
+                reduce_only=False,
+                status=SignalStatus.RECEIVED,
+                generated_timestamp=datetime.now(timezone.utc),
                 timeframe=timeframe,
-                last_close=last_close,
-                sl_absolute=calculated_sl,
-                tp_absolute=calculated_tp,
                 metadata={
                     "atr": current_atr,
                     "engine": "sdk-refactor-demo"
-                }
+                },
             )
+
+            final_payload = self.translator.to_backend_payload(signal)
             
             # STEP 6: Safe Dispatch to Backend
             self.logger.info(f"Dispatching clean payload to backend router: {final_payload}")

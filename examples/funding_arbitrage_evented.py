@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bot-id", required=True, help="Bot id used in emitted SignalPayloads")
     parser.add_argument("--base-url", default="http://localhost:8080", help="Backend base URL")
     parser.add_argument("--bot-api-key", default=None, help="Runtime bot API key")
+    parser.add_argument("--bot-signer-secret", default=None, help="Runtime bot HMAC signer secret")
     parser.add_argument("--spot-symbol", default="BTC/USDT", help="Spot symbol for live feed")
     parser.add_argument("--futures-symbol", default=None, help="Futures symbol for live feed")
     parser.add_argument("--exchange", default="binance", help="CCXT exchange id")
@@ -117,6 +118,7 @@ def build_runner(args: argparse.Namespace) -> tuple[Runner, object]:
             base_url=args.base_url,
             api_key=args.bot_api_key or "",
             default_bot_id=args.bot_id,
+            signer_secret=args.bot_signer_secret,
         )
         dispatcher = LiveHTTPDispatcher(client, bot_api_key=args.bot_api_key)
 

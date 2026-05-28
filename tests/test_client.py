@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
+from datetime import datetime, timezone
 
 from quant_signal_sdk.client import QuantSignalClient
+from quant_signal_sdk.models import MarketType, OrderType, SignalAction, SignalPayload, SignalStatus, MarginMode
 
 
 class FakeResponse:
@@ -46,7 +48,9 @@ def test_send_payload_with_bot_key_sets_header_and_returns_json():
     call = net.calls[0]
     assert call["headers"].get("X-Bot-Api-Key") == "bot-abc-123"
     assert "X-Timestamp" in call["headers"]
-    assert call["json"] == payload
+    assert call["json"]["signal"] == "x"
+    assert "signalId" in call["json"]
+    assert "generatedTimestamp" in call["json"]
 
 
 def test_send_payload_with_bot_key_signs_payload_when_secret_is_set():
@@ -67,7 +71,46 @@ def test_send_payload_with_bot_key_signs_payload_when_secret_is_set():
     assert call["headers"].get("X-Bot-Api-Key") == "bot-abc-123"
     assert "X-Timestamp" in call["headers"]
     assert "X-Signature" in call["headers"]
-    assert call["json"] == payload
+    assert call["json"]["signal"] == "x"
+    assert "signalId" in call["json"]
+    assert "generatedTimestamp" in call["json"]
+
+
+def test_send_signal_auto_injects_ids_from_client_context():
+    net = DummyNetworkClient()
+    client = QuantSignalClient(
+        base_url="http://localhost:8080",
+        api_key="user-key",
+        default_bot_id="bot-context-123",
+        network_client=net,
+    )
+
+    signal = SignalPayload(
+        action=SignalAction.OPEN_LONG,
+        symbol="BTCUSDT",
+        market_type=MarketType.SPOT,
+        order_type=OrderType.LIMIT,
+        entry=29000,
+        stop_loss=28000,
+        take_profit=30000,
+        amount=0.01,
+        leverage=1,
+        margin_mode=MarginMode.CROSS,
+        reduce_only=False,
+        status=SignalStatus.RECEIVED,
+        generated_timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+        metadata={"strategy": "unit-test"},
+    )
+
+    response = client.send_signal(signal)
+
+    assert response == {"result": "ok"}
+    assert len(net.calls) == 1
+    call = net.calls[0]
+    assert call["json"]["botId"] == "bot-context-123"
+    assert call["json"]["signalId"] is not None
+    assert signal.bot_id == "bot-context-123"
+    assert signal.signal_id == call["json"]["signalId"]
 
 
 def test_register_bot_sends_auth_or_bot_key_header():
@@ -83,3 +126,57 @@ def test_register_bot_sends_auth_or_bot_key_header():
     resp2 = client.register_bot({"botId": "b2"}, bot_api_key="bot-key-456")
     assert resp2 == {"result": "ok"}
     assert net.calls[-1]["headers"].get("X-Bot-Api-Key") == "bot-key-456"
+
+
+def test_send_heartbeat_sends_post_with_bot_api_key():
+    net = DummyNetworkClient()
+    client = QuantSignalClient(
+        base_url="http://localhost:8080",
+        api_key="default-key",
+        default_bot_id="default-bot-123",
+        signer_secret="my-signer-secret",
+        network_client=net,
+    )
+
+    # test case 1: use defaults
+    result = client.send_heartbeat()
+    assert result == {"result": "ok"}
+    assert len(net.calls) == 1
+    call = net.calls[0]
+    assert call["url"] == "http://localhost:8080/api/v1/bots/default-bot-123/heartbeat"
+    assert call["headers"].get("X-Bot-Api-Key") == "default-key"
+    assert "X-Timestamp" in call["headers"]
+    assert "X-Signature" in call["headers"]
+    assert call["json"] == {}
+
+    # test case 2: override bot_id and api_key
+    result2 = client.send_heartbeat(bot_id="override-bot", bot_api_key="override-key")
+    assert result2 == {"result": "ok"}
+    assert len(net.calls) == 2
+    call2 = net.calls[1]
+    assert call2["url"] == "http://localhost:8080/api/v1/bots/override-bot/heartbeat"
+    assert call2["headers"].get("X-Bot-Api-Key") == "override-key"
+    assert "X-Timestamp" in call2["headers"]
+    assert "X-Signature" in call2["headers"]
+    assert call2["json"] == {}
+
+
+def test_heartbeat_loop_starts_and_stops():
+    import time
+    net = DummyNetworkClient()
+    client = QuantSignalClient(
+        base_url="http://localhost:8080",
+        api_key="default-key",
+        default_bot_id="default-bot-123",
+        network_client=net,
+    )
+
+    client.start_heartbeat_loop(interval_seconds=0.01)
+    # Give it a tiny bit of time to make the initial call
+    time.sleep(0.05)
+    client.stop_heartbeat_loop()
+
+    assert len(net.calls) >= 1
+    call = net.calls[0]
+    assert call["url"] == "http://localhost:8080/api/v1/bots/default-bot-123/heartbeat"
+    assert call["headers"].get("X-Bot-Api-Key") == "default-key"

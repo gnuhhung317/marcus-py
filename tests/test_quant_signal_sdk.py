@@ -16,7 +16,7 @@ from requests.adapters import HTTPAdapter
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from quant_signal_sdk.client import QuantSignalClient
-from quant_signal_sdk.models import SignalAction, SignalPayload, SignalSide
+from quant_signal_sdk.models import MarginMode, MarketType, OrderType, SignalAction, SignalPayload, SignalStatus
 from quant_signal_sdk.network import NetworkClient
 from quant_signal_sdk.signing import generate_hmac_signature
 
@@ -57,22 +57,44 @@ class _FakeNetworkClient:
 
 
 class SignalPayloadValidationTest(unittest.TestCase):
-    def test_should_reject_invalid_side(self) -> None:
+    def test_should_reject_invalid_symbol(self) -> None:
         with self.assertRaises(ValidationError):
             SignalPayload(
-                side=cast(SignalSide, "INVALID"),
+                signal_id="sig-1",
+                bot_id="bot-1",
                 action=SignalAction.OPEN_LONG,
-                symbol="BTCUSDT",
-                confidence_score=0.9,
+                symbol="BTC-USDT!",
+                market_type=MarketType.SPOT,
+                order_type=OrderType.LIMIT,
+                entry=100,
+                stop_loss=90,
+                take_profit=110,
+                amount=1,
+                leverage=1,
+                margin_mode=MarginMode.CROSS,
+                reduce_only=False,
+                status=SignalStatus.RECEIVED,
+                generated_timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
             )
 
     def test_should_reject_invalid_action(self) -> None:
         with self.assertRaises(ValidationError):
             SignalPayload(
-                side=SignalSide.LONG,
+                signal_id="sig-1",
+                bot_id="bot-1",
                 action=cast(SignalAction, "BUY_NOW"),
                 symbol="BTCUSDT",
-                confidence_score=0.9,
+                market_type=MarketType.SPOT,
+                order_type=OrderType.LIMIT,
+                entry=100,
+                stop_loss=90,
+                take_profit=110,
+                amount=1,
+                leverage=1,
+                margin_mode=MarginMode.CROSS,
+                reduce_only=False,
+                status=SignalStatus.RECEIVED,
+                generated_timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
             )
 
 
@@ -127,14 +149,22 @@ class QuantSignalClientRequestBuildTest(unittest.TestCase):
             network_client=fake_network,
         )
         signal = SignalPayload(
-            side=SignalSide.LONG,
+            signal_id="sig-1",
+            bot_id="bot-1",
             action=SignalAction.OPEN_LONG,
             symbol="BTCUSDT",
-            tp=30000,
-            sl=28000,
-            confidence_score=0.82,
+            market_type=MarketType.SPOT,
+            order_type=OrderType.LIMIT,
+            entry=29000,
+            stop_loss=28000,
+            take_profit=30000,
+            amount=0.01,
+            leverage=1,
+            margin_mode=MarginMode.CROSS,
+            reduce_only=False,
+            status=SignalStatus.RECEIVED,
+            generated_timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
             metadata={"strategy": "unit-test"},
-            timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         response = client.send_signal(signal)
@@ -148,9 +178,11 @@ class QuantSignalClientRequestBuildTest(unittest.TestCase):
         self.assertEqual(call["headers"]["X-Bot-Api-Key"], "api-key-123")
         self.assertIn("X-Signature", call["headers"])
         self.assertEqual(call["headers"]["Content-Type"], "application/json")
+        self.assertEqual(call["json_body"]["signalId"], "sig-1")
+        self.assertEqual(call["json_body"]["botId"], "bot-1")
         self.assertEqual(call["json_body"]["symbol"], "BTCUSDT")
         self.assertEqual(call["json_body"]["action"], "OPEN_LONG")
-        self.assertEqual(call["json_body"]["timestamp"], "2026-04-01T12:00:00Z")
+        self.assertEqual(call["json_body"]["generatedTimestamp"], "2026-04-01T12:00:00Z")
 
 
 if __name__ == "__main__":

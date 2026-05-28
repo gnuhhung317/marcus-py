@@ -3,6 +3,7 @@ from __future__ import annotations
 
 Includes a simple SMA crossover strategy that emits OPEN_LONG/OPEN_SHORT signals.
 """
+import uuid
 from typing import List, Optional
 from statistics import mean
 
@@ -33,7 +34,7 @@ class SimpleSmaStrategy:
             return None
         entry = close_prices[-1]
         return {
-            "signalId": f"sig_{int(entry)}_{len(close_prices)}",
+            "signalId": f"sig_{uuid.uuid4()}",
             "botId": bot_id,
             "action": action,
             "entry": entry,

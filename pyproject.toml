@@ -35,6 +35,7 @@ dev = [
 ]
 
 market-data = [
+  "pandas>=2.2,<3.0",
   "ccxt>=4.0,<6.0",
 ]
 
