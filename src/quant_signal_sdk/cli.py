@@ -14,7 +14,9 @@ from typing import Any
 
 import pandas as pd
 
-from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, OhlcvReplayFeed, PortfolioBacktestRunner
+from .data_loader import BundleLoader
+from .runtime.adapters import DataFrameFeed
+from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, PortfolioBacktestRunner
 from .runtime.interfaces import BaseStrategy
 
 
@@ -28,8 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     backtest = subparsers.add_parser("backtest", help="Run an in-memory portfolio backtest")
     backtest.add_argument("--bot-file", default="my_bot.py", help="Path to a Python bot file or module")
     backtest.add_argument("--bot-object", default=None, help="Strategy class, instance, or attribute name inside the bot module")
-    backtest.add_argument("--data-csv", required=True, default=None, help="Path to OHLCV CSV data (required)")
-    backtest.add_argument("--data-parquet", required=True, default=None, help="Path to parquet file or directory containing parquet files")
+    source_group = backtest.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--data-csv", default=None, help="Path to OHLCV CSV data")
+    source_group.add_argument("--data-parquet", default=None, help="Path to parquet file or directory containing parquet files")
+    source_group.add_argument("--bundle-dir", default=None, help="Path to a bundle directory containing manifest.json and parquet assets")
+    backtest.add_argument("--symbol", default=None, help="Asset symbol to load from a bundle manifest")
     backtest.add_argument("--timestamp-column", default=None, help="Optional timestamp column name")
     backtest.add_argument("--initial-cash", type=float, default=0.0, help="Starting cash balance")
     backtest.add_argument("--maker-fee", type=float, default=0.0, help="Maker fee rate")
@@ -59,15 +64,16 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_backtest(args: argparse.Namespace):
     strategy = _load_strategy(args.bot_file, args.bot_object)
-    # Load data: prefer parquet if provided, otherwise CSV
-    if getattr(args, "data_parquet", None):
+    if getattr(args, "bundle_dir", None):
+        dataframe = _load_bundle_dataframe(args.bundle_dir, args.symbol, args.timestamp_column)
+    elif getattr(args, "data_parquet", None):
         dataframe = _load_parquet(args.data_parquet, args.timestamp_column)
     elif getattr(args, "data_csv", None):
         dataframe = pd.read_csv(args.data_csv)
     else:
-        raise ValueError("Either --data-csv or --data-parquet must be provided.")
+        raise ValueError("Provide exactly one of --data-csv, --data-parquet, or --bundle-dir.")
 
-    feed = OhlcvReplayFeed(dataframe, timestamp_column=args.timestamp_column)
+    feed = DataFrameFeed(dataframe, timestamp_col=args.timestamp_column or "timestamp")
     config = BacktestConfig(
         initial_cash=args.initial_cash,
         maker_fee_rate=args.maker_fee,
@@ -372,3 +378,85 @@ def _load_parquet(path: str, timestamp_column: str | None) -> pd.DataFrame:
     if timestamp_column is not None and timestamp_column in df.columns:
         df[timestamp_column] = pd.to_datetime(df[timestamp_column], errors="coerce", utc=True)
     return df
+
+
+def _load_bundle_dataframe(bundle_dir: str, symbol: str | None, timestamp_column: str | None) -> pd.DataFrame:
+    loader = BundleLoader(bundle_dir)
+    asset_symbol = symbol or loader.manifest.first_symbol
+    if asset_symbol is None:
+        raise ValueError(f"Bundle manifest does not define any assets: {bundle_dir}")
+
+    asset = loader.manifest.get_asset(asset_symbol)
+    raw_asset_data = loader.load_raw_asset_data(asset_symbol)
+    return _merge_bundle_streams(
+        raw_asset_data,
+        timestamp_column=timestamp_column or "timestamp",
+        column_mapping=asset.column_mapping,
+    )
+
+
+def _merge_bundle_streams(
+    raw_asset_data: dict[str, pd.DataFrame],
+    *,
+    timestamp_column: str,
+    column_mapping: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    if not raw_asset_data:
+        raise ValueError("Bundle asset has no data streams to merge.")
+
+    prepared_frames: list[pd.DataFrame] = []
+    mapping = dict(column_mapping or {})
+    for stream_name, frame in raw_asset_data.items():
+        normalized = _normalize_stream_frame(frame, timestamp_column=timestamp_column)
+        if mapping:
+            columns_to_keep = [timestamp_column]
+            rename_map: dict[str, str] = {}
+            for column in normalized.columns:
+                if column == timestamp_column:
+                    continue
+                mapped_name = mapping.get(column)
+                if mapped_name is None:
+                    continue
+                columns_to_keep.append(column)
+                rename_map[column] = mapped_name
+            if len(columns_to_keep) == 1:
+                raise ValueError(
+                    f"No mapped columns found for stream '{stream_name}'. Provide column_mapping entries in manifest.json."
+                )
+            normalized = normalized.loc[:, columns_to_keep].rename(columns=rename_map)
+        elif len(raw_asset_data) > 1:
+            raise ValueError(
+                "Multi-stream bundle assets require manifest column_mapping entries to produce a flat payload."
+            )
+        prepared_frames.append(normalized)
+
+    ordered_frames = sorted(prepared_frames, key=len, reverse=True)
+    merged = ordered_frames[0].sort_values(timestamp_column).reset_index(drop=True)
+    for frame in ordered_frames[1:]:
+        merged = pd.merge_asof(
+            merged.sort_values(timestamp_column),
+            frame.sort_values(timestamp_column),
+            on=timestamp_column,
+            direction="backward",
+        )
+
+    return merged.ffill().reset_index(drop=True)
+
+
+def _normalize_stream_frame(frame: pd.DataFrame, *, timestamp_column: str) -> pd.DataFrame:
+    normalized = frame.copy()
+
+    if timestamp_column in normalized.columns:
+        pass
+    elif isinstance(normalized.index, pd.DatetimeIndex):
+        normalized.index.name = timestamp_column
+        normalized = normalized.reset_index()
+    else:
+        raise ValueError(
+            f"Stream data must contain a '{timestamp_column}' column or use a DatetimeIndex; "
+            f"found columns={list(normalized.columns)}"
+        )
+
+    normalized[timestamp_column] = pd.to_datetime(normalized[timestamp_column], errors="coerce", utc=True)
+    normalized = normalized.dropna(subset=[timestamp_column]).sort_values(timestamp_column).reset_index(drop=True)
+    return normalized

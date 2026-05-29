@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import csv
+from collections.abc import Callable
+import re
 import logging
-from datetime import datetime, timezone
+import time
+from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 import requests
+import pandas as pd
 
 from ..client import QuantSignalClient
 from ..models import SignalPayload
-from .interfaces import MarketEvent
+from .interfaces import BaseFeed, MarketEvent
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -20,83 +25,197 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class LiveRESTFeed:
+class BaseTrigger(ABC):
+    """Block until the next live ingestion tick is due.
+
+    ScheduledRESTFeed depends only on this abstract trigger contract, so the
+    timing policy can be swapped without changing data acquisition or payload
+    normalization logic.
+    """
+
+    @abstractmethod
+    def wait_for_next_tick(self) -> None:
+        """Suspend execution until the trigger allows the next fetch."""
+
+
+class IntervalTrigger(BaseTrigger):
+    """Trigger that sleeps for a fixed interval between fetches."""
+
+    def __init__(self, interval_seconds: float) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("interval_seconds must be greater than zero")
+        self._interval_seconds = float(interval_seconds)
+
+    def wait_for_next_tick(self) -> None:
+        time.sleep(self._interval_seconds)
+
+
+class CronTrigger(BaseTrigger):
+    """Trigger that waits for the next wall-clock boundary for a timeframe.
+
+    This is useful for feeds that should refresh exactly when a candle closes,
+    such as 1h or 4h execution windows.
+    """
+
+    _TIMEFRAME_PATTERN = re.compile(r"^\s*(\d+)\s*([smhdw])\s*$", re.IGNORECASE)
+
+    def __init__(self, timeframe: str) -> None:
+        self._timeframe = timeframe.strip()
+        self._interval_seconds = self._parse_timeframe_seconds(self._timeframe)
+
+    def wait_for_next_tick(self) -> None:
+        now = datetime.now(timezone.utc)
+        epoch_seconds = now.timestamp()
+        remainder = epoch_seconds % self._interval_seconds
+        sleep_seconds = self._interval_seconds - remainder
+        if sleep_seconds <= 1e-9:
+            sleep_seconds = self._interval_seconds
+        time.sleep(sleep_seconds)
+
+    @classmethod
+    def _parse_timeframe_seconds(cls, timeframe: str) -> int:
+        match = cls._TIMEFRAME_PATTERN.match(timeframe)
+        if match is None:
+            raise ValueError(
+                f"Unsupported timeframe format: {timeframe!r}. Expected values like '15m', '1h', '4h', or '1d'."
+            )
+        quantity = int(match.group(1))
+        unit = match.group(2).lower()
+        unit_seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
+        return quantity * unit_seconds
+
+
+class DataFrameFeed(BaseFeed):
+    """Replay a DataFrame as a stream of MarketEvent objects.
+
+    Every row becomes one event. The timestamp is sourced from the configured
+    timestamp column when present; otherwise the DataFrame index is used.
+    All remaining columns are copied into the payload unchanged.
+    """
+
+    def __init__(self, df: pd.DataFrame, timestamp_col: str = "timestamp") -> None:
+        self._dataframe = df
+        self._timestamp_col = timestamp_col
+
+    def stream(self) -> Iterator[MarketEvent]:
+        records = self._dataframe.to_dict(orient="records")
+
+        if self._timestamp_col in self._dataframe.columns:
+            for payload in records:
+                timestamp_value = payload.pop(self._timestamp_col)
+                yield MarketEvent(timestamp=self._coerce_timestamp(timestamp_value), payload=payload)
+            return
+
+        if isinstance(self._dataframe.index, pd.DatetimeIndex):
+            for timestamp_value, payload in zip(self._dataframe.index, records, strict=False):
+                yield MarketEvent(timestamp=self._coerce_timestamp(timestamp_value), payload=payload)
+            return
+
+        raise ValueError(
+            f"DataFrameFeed requires a '{self._timestamp_col}' column or a DatetimeIndex; "
+            f"found columns={list(self._dataframe.columns)}"
+        )
+
+    def _coerce_timestamp(self, value: Any) -> datetime:
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, pd.Timestamp):
+            timestamp = value.to_pydatetime()
+            return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
+        if isinstance(value, (int, float)):
+            if value > 1e11:
+                return datetime.fromtimestamp(float(value) / 1000.0, tz=timezone.utc)
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+
+        parsed = pd.to_datetime(value, utc=True, errors="coerce")
+        if pd.isna(parsed):
+            raise ValueError(f"Unable to coerce timestamp value: {value!r}")
+        timestamp = parsed.to_pydatetime()
+        return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
+
+
+class ScheduledRESTFeed(BaseFeed):
+    """Poll an injected fetcher on a schedule and emit MarketEvent objects.
+
+    Inversion of control is enforced by keeping the feed unaware of exchange
+    clients, REST calls, or symbol selection. The end user injects a zero-arg
+    `fetcher` that returns a Pandas DataFrame, and a `BaseTrigger` that defines
+    when the next fetch should happen.
+
+    Freshness is stateful: the feed only yields a new event when the latest row
+    timestamp is strictly greater than the previous accepted timestamp. The
+    final row is converted into a MarketEvent by routing through a local
+    DataFrameFeed instance so the live payload contract matches backtest
+    behavior exactly.
+    """
+
     def __init__(
         self,
         *,
-        spot_symbol: str,
-        futures_symbol: str | None = None,
-        exchange_id: str = "binance",
-        timeframe: str = "1h",
-        interval_seconds: float = 60.0,
-        ohlcv_limit: int = 200,
-        funding_limit: int = 8,
-        config: dict[str, Any] | None = None,
+        fetcher: Callable[[], pd.DataFrame],
+        trigger: BaseTrigger,
+        max_retries: int = 10,
+        retry_delay_sec: float = 0.5,
+        timestamp_col: str = "timestamp",
     ) -> None:
-        self._spot_symbol = spot_symbol
-        self._futures_symbol = futures_symbol or spot_symbol
-        self._exchange_id = exchange_id
-        self._timeframe = timeframe
-        self._interval_seconds = interval_seconds
-        self._ohlcv_limit = ohlcv_limit
-        self._funding_limit = funding_limit
-        self._config = dict(config or {})
-        self._exchange = self._build_exchange()
+        if max_retries < 1:
+            raise ValueError("max_retries must be at least 1")
+        if retry_delay_sec < 0:
+            raise ValueError("retry_delay_sec must be greater than or equal to zero")
+        self._fetcher = fetcher
+        self._trigger = trigger
+        self._max_retries = int(max_retries)
+        self._retry_delay_sec = float(retry_delay_sec)
+        self._timestamp_col = timestamp_col
+        self._last_seen_timestamp: datetime | None = None
 
     def stream(self) -> Iterator[MarketEvent]:
-        import time
-
         while True:
-            spot_ohlcv = self._exchange.fetch_ohlcv(self._spot_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
-            futures_ohlcv = self._exchange.fetch_ohlcv(self._futures_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
+            self._trigger.wait_for_next_tick()
+            try:
+                event = self._fetch_next_fresh_event()
+            except TimeoutError as exc:
+                logger.error("Skipping live ingestion tick due to data fetch failure: %s", exc)
+                continue
 
-            funding_history: list[Any] = []
-            if hasattr(self._exchange, "fetch_funding_rate_history"):
-                funding_history = self._exchange.fetch_funding_rate_history(self._futures_symbol, limit=self._funding_limit)
+            self._last_seen_timestamp = event.timestamp
+            yield event
 
-            timestamp = self._latest_timestamp(spot_ohlcv, futures_ohlcv)
-            payload = {
-                "spot": {
-                    "symbol": self._spot_symbol,
-                    "ohlcv": spot_ohlcv,
-                    "latest": spot_ohlcv[-1] if spot_ohlcv else None,
-                },
-                "futures": {
-                    "symbol": self._futures_symbol,
-                    "ohlcv": futures_ohlcv,
-                    "latest": futures_ohlcv[-1] if futures_ohlcv else None,
-                },
-                "funding": {
-                    "symbol": self._futures_symbol,
-                    "history": funding_history,
-                    "latest": funding_history[-1] if funding_history else None,
-                },
-            }
-            yield MarketEvent(timestamp=timestamp, payload=payload)
-            time.sleep(self._interval_seconds)
+    def _fetch_next_fresh_event(self) -> MarketEvent:
+        last_error: Exception | None = None
+        for _ in range(self._max_retries):
+            frame = self._fetcher()
+            try:
+                event = self._frame_to_event(frame)
+            except Exception as exc:
+                last_error = exc
+                if self._retry_delay_sec > 0:
+                    time.sleep(self._retry_delay_sec)
+                continue
 
-    def _build_exchange(self) -> Any:
+            if self._last_seen_timestamp is None or event.timestamp > self._last_seen_timestamp:
+                return event
+
+            if self._retry_delay_sec > 0:
+                time.sleep(self._retry_delay_sec)
+
+        if last_error is not None:
+            raise TimeoutError("ScheduledRESTFeed could not produce a fresh market event") from last_error
+        raise TimeoutError("ScheduledRESTFeed could not produce a fresh market event")
+
+    def _frame_to_event(self, frame: pd.DataFrame) -> MarketEvent:
+        if frame.empty:
+            raise ValueError("ScheduledRESTFeed requires non-empty market data from the injected fetcher")
+
+        latest_frame = frame.tail(1).copy()
+        feed = DataFrameFeed(latest_frame, timestamp_col=self._timestamp_col)
         try:
-            import ccxt  # type: ignore
-        except Exception as exc:  # pragma: no cover - import guard
-            raise ImportError("LiveRESTFeed requires ccxt. Install quant-signal-sdk[market-data].") from exc
+            return next(feed.stream())
+        except StopIteration as exc:  # pragma: no cover - defensive guard
+            raise ValueError("Unable to adapt the latest DataFrame row into a MarketEvent") from exc
 
-        exchange_class = getattr(ccxt, self._exchange_id)
-        exchange = exchange_class(self._config)
-        if hasattr(exchange, "load_markets"):
-            exchange.load_markets()
-        return exchange
 
-    def _latest_timestamp(self, spot_ohlcv: list[Any], futures_ohlcv: list[Any]) -> datetime:
-        latest_ms = None
-        for rows in (spot_ohlcv, futures_ohlcv):
-            if rows:
-                candidate = rows[-1][0]
-                if latest_ms is None or candidate > latest_ms:
-                    latest_ms = candidate
-        if latest_ms is None:
-            return datetime.now(timezone.utc)
-        return datetime.fromtimestamp(float(latest_ms) / 1000.0, tz=timezone.utc)
+LiveRESTFeed = ScheduledRESTFeed
 
 
 class LiveHTTPDispatcher:
@@ -136,62 +255,15 @@ class LiveHTTPDispatcher:
         return value.replace("Z", "").replace("+00:00", "")
 
 
-class ParquetReplayFeed:
-    def __init__(self, dataframe: "pd.DataFrame", timestamp_column: str | None = None) -> None:
-        self._dataframe = dataframe
-        self._timestamp_column = timestamp_column
+class ParquetReplayFeed(DataFrameFeed):
+    """Backward-compatible alias for DataFrameFeed.
 
-    def stream(self) -> Iterator[MarketEvent]:
-        columns = list(self._dataframe.columns)
-        timestamp_position = self._timestamp_position(columns)
+    The old replay feed name is kept so existing examples and tests can keep
+    importing it while the ingestion layer moves toward DataFrame-centric flows.
+    """
 
-        for row in self._dataframe.itertuples(index=True, name=None):
-            timestamp = self._extract_timestamp_from_tuple(row, timestamp_position)
-            payload = self._payload_from_tuple(row, columns, timestamp_position)
-            yield MarketEvent(timestamp=timestamp, payload=payload)
-
-    def _timestamp_position(self, columns: list[str]) -> int | None:
-        if not self._timestamp_column:
-            return None
-        try:
-            return columns.index(self._timestamp_column) + 1
-        except ValueError:
-            return None
-
-    def _extract_timestamp_from_tuple(self, row: tuple[Any, ...], timestamp_position: int | None) -> datetime:
-        if timestamp_position is not None and timestamp_position < len(row):
-            return self._coerce_timestamp(row[timestamp_position])
-
-        index_value = row[0]
-        if isinstance(index_value, datetime):
-            return index_value if index_value.tzinfo else index_value.replace(tzinfo=timezone.utc)
-
-        if hasattr(index_value, "to_pydatetime"):
-            value = index_value.to_pydatetime()
-            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-
-        return datetime.now(timezone.utc)
-
-    def _payload_from_tuple(self, row: tuple[Any, ...], columns: list[str], timestamp_position: int | None) -> dict[str, Any]:
-        payload: dict[str, Any] = {}
-        for position, column_name in enumerate(columns, start=1):
-            if timestamp_position is not None and position == timestamp_position:
-                continue
-            value = row[position]
-            if value is not None:
-                payload[column_name] = value
-        return payload
-
-    def _coerce_timestamp(self, value: Any) -> datetime:
-        if isinstance(value, datetime):
-            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        if isinstance(value, (int, float)):
-            if value > 1e11:
-                return datetime.fromtimestamp(float(value) / 1000.0, tz=timezone.utc)
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
-        parsed_text = str(value).replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(parsed_text)
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    def __init__(self, dataframe: pd.DataFrame, timestamp_column: str | None = None) -> None:
+        super().__init__(dataframe, timestamp_col=timestamp_column or "timestamp")
 
 
 class MockDispatcher:

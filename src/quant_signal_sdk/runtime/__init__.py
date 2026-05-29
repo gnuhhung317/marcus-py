@@ -1,9 +1,10 @@
-from .adapters import LiveHTTPDispatcher, LiveRESTFeed, MockDispatcher, ParquetReplayFeed
+from .adapters import BaseTrigger, CronTrigger, DataFrameFeed, IntervalTrigger, LiveHTTPDispatcher, LiveRESTFeed, MockDispatcher, ParquetReplayFeed, ScheduledRESTFeed
 from .backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, OhlcvReplayFeed, PortfolioBacktestRunner
 from .interfaces import BaseDispatcher, BaseFeed, BaseStrategy, MarketEvent, PortfolioContext, Signal
 from .runner import Runner
 
 __all__ = [
+    "BaseTrigger",
     "BaseDispatcher",
     "BaseFeed",
     "BaseStrategy",
@@ -11,6 +12,9 @@ __all__ = [
     "BacktestFill",
     "BacktestOrder",
     "BacktestReport",
+    "CronTrigger",
+    "DataFrameFeed",
+    "IntervalTrigger",
     "LiveHTTPDispatcher",
     "LiveRESTFeed",
     "MarketEvent",
@@ -19,6 +23,7 @@ __all__ = [
     "ParquetReplayFeed",
     "PortfolioContext",
     "PortfolioBacktestRunner",
+    "ScheduledRESTFeed",
     "Runner",
     "Signal",
 ]

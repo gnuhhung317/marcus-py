@@ -30,8 +30,8 @@ class FundingArbitrageStrategy(BaseStrategy):
 
         spot_symbol = self._normalize_symbol(pair["spot_symbol"])
         futures_symbol = self._normalize_symbol(pair["futures_symbol"])
-        latest_price = self._extract_price(pair)
-        funding_rate = self._extract_funding_rate(pair)
+        latest_price = self._extract_price(event.payload)
+        funding_rate = self._extract_funding_rate(event.payload)
 
         spot_key = self._position_key(MarketType.SPOT, spot_symbol)
         futures_key = self._position_key(MarketType.FUTURE, futures_symbol)
@@ -167,53 +167,35 @@ class FundingArbitrageStrategy(BaseStrategy):
         )
 
     def _extract_pair(self, payload: dict[str, Any]) -> dict[str, Any] | None:
-        spot = payload.get("spot")
-        futures = payload.get("futures")
-        funding = payload.get("funding")
-        if not isinstance(spot, dict) or not isinstance(futures, dict) or not isinstance(funding, dict):
-            return None
-
-        spot_symbol = str(spot.get("symbol") or "").strip()
-        futures_symbol = str(futures.get("symbol") or "").strip()
+        spot_symbol = str(payload.get("spot_symbol") or "").strip()
+        futures_symbol = str(payload.get("futures_symbol") or "").strip()
         if not spot_symbol or not futures_symbol:
             return None
 
         return {
             "spot_symbol": spot_symbol,
             "futures_symbol": futures_symbol,
-            "spot": spot,
-            "futures": futures,
-            "funding": funding,
         }
 
-    def _extract_price(self, pair: dict[str, Any]) -> float:
-        for source in (pair["futures"], pair["spot"]):
-            latest = source.get("latest")
-            if isinstance(latest, (list, tuple)) and len(latest) >= 5:
-                try:
-                    return float(latest[4])
-                except (TypeError, ValueError):
-                    continue
+    def _extract_price(self, payload: dict[str, Any]) -> float:
+        for key in ("futures_close", "spot_close"):
+            raw_value = payload.get(key)
+            if raw_value is None:
+                continue
+            try:
+                price = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0.0:
+                return price
         return 0.0
 
-    def _extract_funding_rate(self, pair: dict[str, Any]) -> float:
-        funding = pair["funding"]
-        latest = funding.get("latest")
-        if isinstance(latest, dict):
-            raw_value = latest.get("fundingRate") or latest.get("funding_rate") or 0.0
-            try:
-                return float(raw_value)
-            except (TypeError, ValueError):
-                return 0.0
-        if isinstance(latest, (int, float)):
-            return float(latest)
-        history = funding.get("history") or []
-        if history and isinstance(history[-1], dict):
-            raw_value = history[-1].get("fundingRate") or history[-1].get("funding_rate") or 0.0
-            try:
-                return float(raw_value)
-            except (TypeError, ValueError):
-                return 0.0
+    def _extract_funding_rate(self, payload: dict[str, Any]) -> float:
+        raw_value = payload.get("funding_rate", 0.0)
+        try:
+            return float(raw_value)
+        except (TypeError, ValueError):
+            return 0.0
         return 0.0
 
     def _position_amount(self, price: float) -> float:
