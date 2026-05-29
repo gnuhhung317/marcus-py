@@ -1,0 +1,3 @@
+timestamp,order_id,signal_id,symbol,market_type,side,quantity,price,fee,fee_type
+2026-05-28T09:15:00+00:00,sample-open_long-1779958800,sample-open_long-1779958800,BTCUSDT,SPOT,BUY,1.0,100.0,0.0,TAKER
+2026-05-28T09:30:00+00:00,sample-close_long-1779959700,sample-close_long-1779959700,BTCUSDT,SPOT,SELL,1.0,110.0,0.0,TAKER

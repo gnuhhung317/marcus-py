@@ -9,6 +9,7 @@ from .models import (
     MarginMode,
     MarketType,
     OrderType,
+    ExecutionPolicies,
     SignalAction,
     SignalPayload,
     SignalSide,
@@ -21,6 +22,7 @@ from .feature_engineer import FeatureEngineer
 from .interfaces import BaseDispatcher, BaseFeed, MarketEvent, PortfolioContext, Signal
 from .runner import Runner
 from .adapters import LiveHTTPDispatcher, LiveRESTFeed, MockDispatcher, ParquetReplayFeed
+from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, OhlcvReplayFeed, PortfolioBacktestRunner
 from .core_strategy import FundingArbitrageConfig, FundingArbitrageStrategy
 from .translator import SignalTranslator, BoundaryValidationException, RiskManager, PercentageRiskManager
 
@@ -29,6 +31,7 @@ __all__ = [
     "MarginMode",
     "MarketType",
     "OrderType",
+    "ExecutionPolicies",
     "SignalAction",
     "SignalPayload",
     "SignalSide",
@@ -45,6 +48,12 @@ __all__ = [
     "PortfolioContext",
     "Signal",
     "Runner",
+    "BacktestConfig",
+    "BacktestFill",
+    "BacktestOrder",
+    "BacktestReport",
+    "OhlcvReplayFeed",
+    "PortfolioBacktestRunner",
     "LiveHTTPDispatcher",
     "LiveRESTFeed",
     "MockDispatcher",

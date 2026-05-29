@@ -62,6 +62,7 @@ src/quant_signal_sdk.egg-info/top_level.txt
 src/quant_signal_sdk/__init__.py
 src/quant_signal_sdk/adapters.py
 src/quant_signal_sdk/ccxt_client.py
+src/quant_signal_sdk/cli.py
 src/quant_signal_sdk/client.py
 src/quant_signal_sdk/core_strategy.py
 src/quant_signal_sdk/data_provider.py
@@ -72,6 +73,7 @@ src/quant_signal_sdk/network.py
 src/quant_signal_sdk/runner.py
 src/quant_signal_sdk/runtime/__init__.py
 src/quant_signal_sdk/runtime/adapters.py
+src/quant_signal_sdk/runtime/backtest.py
 src/quant_signal_sdk/runtime/interfaces.py
 src/quant_signal_sdk/runtime/runner.py
 src/quant_signal_sdk/signing.py
@@ -79,6 +81,7 @@ src/quant_signal_sdk/strategy.py
 src/quant_signal_sdk/translator.py
 tests/fixtures/contracts/sdk_signal_payload_v1.json
 tests/fixtures/contracts/sdk_signature_vector_v1.json
+tests/test_backtest_engine.py
 tests/test_client.py
 tests/test_contract_compatibility_sdk.py
 tests/test_funding_arbitrage_bot.py
@@ -86,97 +89,309 @@ tests/test_models.py
 tests/test_quant_signal_sdk.py
 tests/test_sample_bot_example.py
 tests/test_strategy.py
+tests/test_translator_policies.py
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
 
-<file path="Dockerfile.bot">
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY pyproject.toml README.md ./
-COPY src ./src
-COPY examples ./examples
-
-RUN pip install --no-cache-dir -e ".[market-data]"
+<file path="src/quant_signal_sdk/cli.py">
+logger = logging.getLogger(__name__)
+⋮----
+def build_parser() -> argparse.ArgumentParser
+⋮----
+parser = argparse.ArgumentParser(prog="quant-sdk")
+subparsers = parser.add_subparsers(dest="command", required=True)
+⋮----
+backtest = subparsers.add_parser("backtest", help="Run an in-memory portfolio backtest")
+⋮----
+def main(argv: list[str] | None = None) -> int
+⋮----
+args = build_parser().parse_args(argv)
+⋮----
+report = run_backtest(args)
+⋮----
+def run_backtest(args: argparse.Namespace)
+⋮----
+strategy = _load_strategy(args.bot_file, args.bot_object)
+dataframe = pd.read_csv(args.data_csv)
+feed = OhlcvReplayFeed(dataframe, timestamp_column=args.timestamp_column)
+config = BacktestConfig(
+runner = PortfolioBacktestRunner(feed=feed, strategy=strategy, config=config)
+⋮----
+def _load_strategy(bot_file: str, bot_object: str | None) -> BaseStrategy
+⋮----
+module = _load_module(bot_file)
+candidate = None
+⋮----
+candidate = getattr(module, bot_object)
+⋮----
+candidate = getattr(module, "STRATEGY", None)
+⋮----
+candidate = _find_strategy_candidate(module)
+⋮----
+def _load_module(bot_file: str)
+⋮----
+path = Path(bot_file)
+⋮----
+module_name = path.stem
+spec = importlib.util.spec_from_file_location(module_name, path)
+⋮----
+module = importlib.util.module_from_spec(spec)
+⋮----
+def _find_strategy_candidate(module: Any)
 </file>
 
-<file path="funding_arb_portfolio.json">
-{
-    "active_positions": {
-        "NEO/USDT:USDT": {
-            "amount": 5.31
-        }
-    },
-    "updated_at": "2026-05-25T00:55:28.689225+00:00"
-}
+<file path="src/quant_signal_sdk/runtime/backtest.py">
+logger = logging.getLogger(__name__)
+⋮----
+@dataclass(frozen=True, slots=True)
+class BacktestConfig
+⋮----
+initial_cash: float = 0.0
+maker_fee_rate: float = 0.0
+taker_fee_rate: float = 0.0
+slippage_rate: float = 0.0
+default_max_size_percent: float | None = None
+⋮----
+@dataclass(slots=True)
+class BacktestOrder
+⋮----
+order_id: str
+signal: SignalPayload
+symbol: str
+market_type: str
+order_type: OrderType
+action: SignalAction
+side: str
+quantity: float
+limit_price: float | None
+created_at: datetime
+eligible_at: datetime
+cancel_after: datetime | None
+status: str = "OPEN"
+filled_quantity: float = 0.0
+fill_price: float | None = None
+fee_paid: float = 0.0
+⋮----
+@dataclass(frozen=True, slots=True)
+class BacktestFill
+⋮----
+signal_id: str | None
+⋮----
+price: float
+fee: float
+timestamp: datetime
+fee_type: str
+⋮----
+@dataclass(frozen=True, slots=True)
+class BacktestReport
+⋮----
+context: PortfolioContext
+fills: list[BacktestFill] = field(default_factory=list)
+orders: list[BacktestOrder] = field(default_factory=list)
+⋮----
+class OhlcvReplayFeed(BaseFeed)
+⋮----
+def __init__(self, dataframe: "pd.DataFrame", timestamp_column: str | None = None) -> None
+⋮----
+def stream(self) -> Iterator[MarketEvent]
+⋮----
+columns = list(self._dataframe.columns)
+required = {"open", "high", "low", "close"}
+missing = required.difference({str(column).lower() for column in columns})
+⋮----
+timestamp_index = self._timestamp_position(columns)
+⋮----
+timestamp = self._extract_timestamp(row, timestamp_index)
+payload = self._extract_payload(row, columns, timestamp_index)
+⋮----
+def _timestamp_position(self, columns: list[str]) -> int | None
+⋮----
+def _extract_timestamp(self, row: tuple[Any, ...], timestamp_index: int | None) -> datetime
+⋮----
+index_value = row[0]
+⋮----
+value = index_value.to_pydatetime()
+⋮----
+def _extract_payload(self, row: tuple[Any, ...], columns: list[str], timestamp_index: int | None) -> dict[str, Any]
+⋮----
+payload: dict[str, Any] = {}
+⋮----
+value = row[position]
+⋮----
+def _coerce_timestamp(self, value: Any) -> datetime
+⋮----
+parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+⋮----
+class PortfolioBacktestRunner
+⋮----
+@property
+    def context(self) -> PortfolioContext
+⋮----
+def run(self) -> BacktestReport
+⋮----
+def _process_event(self, event: MarketEvent) -> None
+⋮----
+candle = self._extract_candle(event.payload)
+⋮----
+def _invoke_strategy(self, event: MarketEvent) -> None
+⋮----
+signals = self._strategy.on_event(event, self._snapshot_context())
+⋮----
+def _admit_signal(self, signal: SignalPayload, event: MarketEvent) -> None
+⋮----
+reference_price = self._reference_price(signal, event.payload)
+notional = self._signal_notional(signal, reference_price)
+max_size_percent = self._resolve_max_size_percent(signal.policies)
+⋮----
+max_notional = self._context.cash * max_size_percent
+⋮----
+order = self._build_order(signal=signal, reference_price=reference_price, created_at=event.timestamp)
+⋮----
+def _materialize_pending_orders(self, current_timestamp: datetime) -> None
+⋮----
+def _sweep_expired_orders(self, current_timestamp: datetime) -> None
+⋮----
+def _match_market_orders(self, current_timestamp: datetime, candle: dict[str, float]) -> None
+⋮----
+fill_price = self._apply_slippage(candle["open"], order.side)
+⋮----
+def _match_limit_orders(self, current_timestamp: datetime, candle: dict[str, float]) -> None
+⋮----
+def _mark_to_market(self, current_timestamp: datetime, candle: dict[str, float]) -> None
+⋮----
+unrealized = 0.0
+⋮----
+quantity = float(position.get("quantity") or position.get("amount") or 0.0)
+entry_price = float(position.get("average_entry_price") or position.get("entry_price") or 0.0)
+side = str(position.get("side") or "LONG").upper()
+⋮----
+def _fill_order(self, order_id: str, order: BacktestOrder, price: float, current_timestamp: datetime, fee_type: str) -> None
+⋮----
+fee_rate = self._config.taker_fee_rate if fee_type == "TAKER" else self._config.maker_fee_rate
+fee = abs(order.quantity * price) * fee_rate
+quantity = abs(order.quantity)
+signed_quantity = quantity if order.side == "BUY" else -quantity
+⋮----
+def _apply_fill(self, order: BacktestOrder, price: float, fee: float, signed_quantity: float) -> None
+⋮----
+position_key = f"{order.market_type}:{order.symbol}"
+position = self._context.positions.get(position_key)
+cash = self._context.cash
+realized_pnl = self._context.realized_pnl
+total_fees = self._context.total_fees + fee
+⋮----
+side = "LONG" if signed_quantity > 0 else "SHORT"
+quantity = abs(signed_quantity)
+position = {
+⋮----
+existing_quantity = float(position.get("net_quantity") or position.get("quantity") or 0.0)
+existing_side = "LONG" if existing_quantity >= 0 else "SHORT"
+⋮----
+opening_fee = float(position.get("opening_fee") or 0.0)
+closing_quantity = abs(signed_quantity)
+⋮----
+total_quantity = abs(existing_quantity) + closing_quantity
+weighted_price = ((entry_price * abs(existing_quantity)) + (price * closing_quantity)) / total_quantity
+⋮----
+close_quantity = min(abs(existing_quantity), closing_quantity)
+⋮----
+remaining_quantity = abs(existing_quantity) - close_quantity
+⋮----
+def _build_order(self, *, signal: SignalPayload, reference_price: float, created_at: datetime) -> BacktestOrder
+⋮----
+order_id = signal.signal_id or f"order_{uuid.uuid4()}"
+side = self._signal_side(signal.action)
+⋮----
+def _signal_side(self, action: SignalAction) -> str
+⋮----
+def _reference_price(self, signal: SignalPayload, payload: dict[str, Any]) -> float
+⋮----
+candle = self._extract_candle(payload)
+⋮----
+def _signal_notional(self, signal: SignalPayload, reference_price: float) -> float
+⋮----
+def _resolve_max_size_percent(self, policies: ExecutionPolicies | None) -> float | None
+⋮----
+def _resolve_cancel_after(self, policies: ExecutionPolicies | None) -> datetime | None
+⋮----
+def _extract_candle(self, payload: dict[str, Any]) -> dict[str, float]
+⋮----
+ohlcv = payload.get("ohlcv")
+⋮----
+def _apply_slippage(self, price: float, side: str) -> float
+⋮----
+slippage = self._config.slippage_rate
+⋮----
+def _limit_touched(self, order: BacktestOrder, candle: dict[str, float]) -> bool
+⋮----
+price = float(order.limit_price or 0.0)
+⋮----
+def _snapshot_context(self) -> PortfolioContext
+⋮----
+def _copy_mapping(self, mapping: dict[str, Any]) -> dict[str, Any]
+⋮----
+copied: dict[str, Any] = {}
 </file>
 
-<file path="tests/test_funding_arbitrage_bot.py">
-class TestFundingArbitrageBot(unittest.TestCase)
+<file path="tests/test_backtest_engine.py">
+@dataclass
+class ListFeed(BaseFeed)
 ⋮----
-def test_feature_engineering_basic(self) -> None
+events: list[MarketEvent]
 ⋮----
-engineer = QuantFeatureEngineer()
+def stream(self)
 ⋮----
-# Build mock dataframes
-idx = pd.date_range(end="2026-05-25 00:00:00", periods=200, freq="h")
-ohlcv = pd.DataFrame(
-funding = pd.DataFrame(
+class OneShotOrderStrategy(BaseStrategy)
 ⋮----
-features = engineer.calculate_features("BTC/USDT:USDT", ohlcv, funding)
+def __init__(self, signal: SignalPayload) -> None
 ⋮----
-def test_arbitrage_bot_heuristic_ranking(self) -> None
+def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[SignalPayload]
 ⋮----
-bot = ArbitrageBot(model_paths=[], features=[])
+class OpenThenCloseStrategy(BaseStrategy)
 ⋮----
-feature_df = pd.DataFrame(
+def __init__(self, open_signal: SignalPayload, close_signal: SignalPayload) -> None
 ⋮----
-ranked = bot.predict_scores(feature_df)
+def _event(timestamp: datetime, open_: float, high: float, low: float, close: float) -> MarketEvent
 ⋮----
-# ETH has higher sum_funding_24h, so it should rank higher when sorting by predicted_score descending
-ranked_sorted = ranked.sort_values(by="predicted_score", ascending=False).reset_index(drop=True)
+def _signal(*, action: SignalAction, order_type: OrderType, entry: float, amount: float, timestamp: datetime, policies: ExecutionPolicies | None = None) -> SignalPayload
 ⋮----
-def test_state_manager_portfolio(self) -> None
+def test_market_order_executes_on_next_open_only() -> None
 ⋮----
-tmp_path = tmp.name
+ts1 = datetime(2026, 5, 28, 9, 0, tzinfo=timezone.utc)
+ts2 = datetime(2026, 5, 28, 9, 15, tzinfo=timezone.utc)
+feed = ListFeed([
+strategy = OneShotOrderStrategy(
 ⋮----
-state_mgr = StateManager(filepath=tmp_path)
-# Empty state initially
+report = PortfolioBacktestRunner(feed=feed, strategy=strategy, config=BacktestConfig(initial_cash=1000.0)).run()
 ⋮----
-# Save portfolio
-test_pairs = {"BTC/USDT:USDT": 1.5, "ETH/USDT:USDT": 2.0}
+def test_limit_order_fills_on_wick_touch() -> None
 ⋮----
-# Reload
-loaded = state_mgr.load_portfolio()
+ts1 = datetime(2026, 5, 28, 10, 0, tzinfo=timezone.utc)
+ts2 = datetime(2026, 5, 28, 10, 15, tzinfo=timezone.utc)
 ⋮----
-@patch("quant_signal_sdk.client.QuantSignalClient.send_payload")
-    def test_dispatch_arbitrage_orders_sends_spot_and_future(self, mock_send_payload: MagicMock) -> None
+def test_timeout_sweep_cancels_before_matching() -> None
 ⋮----
-client = QuantSignalClient(base_url="http://localhost:8080", api_key="bot_key", default_bot_id="my_bot")
+ts1 = datetime(2026, 5, 28, 11, 0, tzinfo=timezone.utc)
+ts2 = datetime(2026, 5, 28, 11, 15, tzinfo=timezone.utc)
+policies = ExecutionPolicies(cancel_order_after=int((ts1 + timedelta(minutes=10)).timestamp()))
 ⋮----
-# Should have sent 2 payloads: 1 SPOT, 1 FUTURE
+def test_max_size_percent_rejects_signal_immediately(caplog) -> None
 ⋮----
-# Verify call arguments
-calls = mock_send_payload.call_args_list
-spot_payload = calls[0][0][0]
-future_payload = calls[1][0][0]
+ts1 = datetime(2026, 5, 28, 12, 0, tzinfo=timezone.utc)
+feed = ListFeed([_event(ts1, 100, 100, 100, 100)])
+policies = ExecutionPolicies(max_size_percent=0.1)
 ⋮----
-# Verify Spot leg details
+def test_cash_and_position_state_stays_consistent_on_roundtrip() -> None
 ⋮----
-# Verify Futures leg details
+ts1 = datetime(2026, 5, 28, 13, 0, tzinfo=timezone.utc)
+ts2 = datetime(2026, 5, 28, 13, 15, tzinfo=timezone.utc)
+ts3 = datetime(2026, 5, 28, 13, 30, tzinfo=timezone.utc)
+open_signal = _signal(action=SignalAction.OPEN_LONG, order_type=OrderType.MARKET, entry=100, amount=1, timestamp=ts1)
+close_signal = _signal(action=SignalAction.CLOSE_LONG, order_type=OrderType.MARKET, entry=110, amount=1, timestamp=ts2)
 ⋮----
-def test_fetch_arbitrage_candidates(self) -> None
-⋮----
-mock_exchange = MagicMock()
-⋮----
-"SOL/USDT:USDT": {"swap": True, "active": True, "linear": True, "base": "SOL", "quote": "USDT"}, # No spot
-⋮----
-candidates = fetch_arbitrage_candidates(mock_exchange)
-⋮----
-# BTC and ETH have spot counterparts, SOL does not
+strategy = OpenThenCloseStrategy(open_signal=open_signal, close_signal=close_signal)
 </file>
 
 <file path=".gitignore">
@@ -253,136 +468,27 @@ An optional module providing pre-integrated support for the `ccxt` library, enab
 - `python -m unittest discover -s tests -v` passed successfully.
 </file>
 
-<file path="examples/funding_arbitrage_evented.py">
-#!/usr/bin/env python3
-"""Event-driven funding arbitrage example.
+<file path="Dockerfile.bot">
+FROM python:3.11-slim
 
-This entrypoint demonstrates the new kernel wiring:
-Feed -> Strategy -> Dispatcher -> Runner.
-"""
-⋮----
-def build_parser() -> argparse.ArgumentParser
-⋮----
-parser = argparse.ArgumentParser(description="Event-driven funding arbitrage example")
-⋮----
-def load_initial_context(state_path: str | None) -> PortfolioContext
-⋮----
-path = Path(state_path)
-⋮----
-raw = json.loads(path.read_text(encoding="utf-8"))
-⋮----
-positions = raw.get("positions") or raw.get("active_positions") or {}
-hydrated_positions: dict[str, dict[str, Any]] = {}
-fallback_timestamp = raw.get("updated_at") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-⋮----
-def dump_context_snapshot(state_path: str, context: PortfolioContext) -> None
-⋮----
-payload = {
-⋮----
-def build_runner(args: argparse.Namespace) -> tuple[Runner, object]
-⋮----
-config = FundingArbitrageConfig(
-strategy = FundingArbitrageStrategy(bot_id=args.bot_id, config=config)
-initial_context = load_initial_context(args.state_json)
-⋮----
-dataframe = pd.read_csv(args.replay_csv)
-feed = ParquetReplayFeed(dataframe)
-⋮----
-feed = LiveRESTFeed(
-⋮----
-dispatcher = MockDispatcher()
-⋮----
-client = QuantSignalClient(
-dispatcher = LiveHTTPDispatcher(client, bot_api_key=args.bot_api_key)
-⋮----
-def after_signal_applied(_: SignalPayload, context: PortfolioContext) -> None
-⋮----
-runner = Runner(
-⋮----
-def main() -> None
-⋮----
-args = build_parser().parse_args()
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY examples ./examples
+
+RUN pip install --no-cache-dir -e ".[market-data]"
 </file>
 
-<file path="examples/sniper_sdk_refactor.py">
-"""
-Clean Architecture Refactor: ML Sniper Bot powered by Quant Signal SDK.
-
-This version demonstrates how to leverage DataProvider, FeatureEngineer, 
-and the Boundary Guard (SignalTranslator) to achieve strict execution isolation.
-"""
-⋮----
-# Import our standardized SDK boundaries
-⋮----
-class CleanMlSniperBot
-⋮----
-# Instantiate foundational SDK guards
-⋮----
-# Placeholder for loading production ML model
-⋮----
-def _load_ml_model(self)
-⋮----
-# In production: self.model = joblib.load('selector.joblib')
-⋮----
-def _mock_ml_predict(self, features: pd.DataFrame) -> bool
-⋮----
-"""Simulated ML evaluation step."""
-⋮----
-# Example heuristic logic mapping to an ML outcome
-last_row = features.iloc[-1]
-# Fake logic: If closing above 20 SMA and having an ATR range
-⋮----
-def process_symbol(self, symbol: str, timeframe: str = "1h")
-⋮----
-"""Core orchestrated pipeline for a single symbol."""
-⋮----
-# STEP 1: Unified Data Retrieval (No manual API/file logic)
-df = self.data_provider.fetch_ohlcv(symbol, timeframe, limit=100)
-⋮----
-# STEP 2: Standardized Feature Engineering
-# Ensure train-set feature pipeline exactly matches run-set pipeline
-df = self.engineer.apply_pipeline(
-⋮----
-# STEP 3: Run Prediction intent
-is_buy_trigger = self._mock_ml_predict(df)
-⋮----
-# STEP 4: Boundary Guard Validation (The Safety Net)
-# Explicitly check for time-gaps BEFORE translating to financial intent.
-⋮----
-# STEP 5: Translate to backend payload shape
-# Calculating precise stop levels relying on engineered features (ATR)
-last_close = float(df.iloc[-1]["close"])
-current_atr = float(df.iloc[-1]["atr"])
-⋮----
-# Dynamic 2xATR stop loss calculation
-calculated_sl = last_close - (current_atr * 2.0)
-calculated_tp = last_close + (current_atr * 3.0)
-⋮----
-signal = SignalPayload(
-⋮----
-final_payload = self.translator.to_backend_payload(signal)
-⋮----
-# STEP 6: Safe Dispatch to Backend
-⋮----
-resp = self.client.send_payload(final_payload)
-⋮----
-def main()
-⋮----
-# Mock config (Use ENV in production)
-BASE_URL = "http://localhost:8080"
-BOT_API_KEY = os.getenv("MARCUS_BOT_API_KEY", "mock-api-key")
-⋮----
-# Initializing SDK Infrastructure
-sdk_client = QuantSignalClient(base_url=BASE_URL, api_key=BOT_API_KEY)
-data_src = CcxtDataProvider(exchange_id="binance")
-⋮----
-# Inject dependencies into Bot Orchestrator
-bot = CleanMlSniperBot(
-⋮----
-# Scan loop
-targets = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
-⋮----
-time.sleep(1) # polite rate limit
+<file path="funding_arb_portfolio.json">
+{
+    "active_positions": {
+        "NEO/USDT:USDT": {
+            "amount": 5.31
+        }
+    },
+    "updated_at": "2026-05-25T00:55:28.689225+00:00"
+}
 </file>
 
 <file path="GEMINI.MD">
@@ -496,79 +602,6 @@ def fetch_ohlcv(self, symbol: str, timeframe: str = "1m", limit: int = 100) -> L
 def close_prices_from_ohlcv(ohlcv: List[List[float]]) -> List[float]
 </file>
 
-<file path="src/quant_signal_sdk/core_strategy.py">
-@dataclass(slots=True)
-class FundingArbitrageConfig
-⋮----
-target_notional: float = 10.0
-min_hold_hours: float = 8.0
-open_funding_threshold: float = 0.0
-close_funding_threshold: float = 0.0
-leverage: int = 1
-margin_mode: MarginMode = MarginMode.CROSS
-⋮----
-class FundingArbitrageStrategy(BaseStrategy)
-⋮----
-def __init__(self, bot_id: str, config: FundingArbitrageConfig | None = None) -> None
-⋮----
-def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[SignalPayload]
-⋮----
-pair = self._extract_pair(event.payload)
-⋮----
-spot_symbol = self._normalize_symbol(pair["spot_symbol"])
-futures_symbol = self._normalize_symbol(pair["futures_symbol"])
-latest_price = self._extract_price(pair)
-funding_rate = self._extract_funding_rate(pair)
-⋮----
-spot_key = self._position_key(MarketType.SPOT, spot_symbol)
-futures_key = self._position_key(MarketType.FUTURE, futures_symbol)
-has_spot = spot_key in context.positions
-has_futures = futures_key in context.positions
-has_position = has_spot or has_futures
-⋮----
-position = context.positions.get(futures_key) or context.positions.get(spot_key)
-⋮----
-opened_at = position.get("generated_timestamp") or position.get("opened_at")
-⋮----
-opened_ts = opened_at if opened_at.tzinfo else opened_at.replace(tzinfo=timezone.utc)
-held_hours = (event.timestamp - opened_ts).total_seconds() / 3600.0
-⋮----
-amount = self._position_amount(price)
-metadata = self._metadata(spot_symbol, futures_symbol, funding_rate, price)
-⋮----
-def _extract_pair(self, payload: dict[str, Any]) -> dict[str, Any] | None
-⋮----
-spot = payload.get("spot")
-futures = payload.get("futures")
-funding = payload.get("funding")
-⋮----
-spot_symbol = str(spot.get("symbol") or "").strip()
-futures_symbol = str(futures.get("symbol") or "").strip()
-⋮----
-def _extract_price(self, pair: dict[str, Any]) -> float
-⋮----
-latest = source.get("latest")
-⋮----
-def _extract_funding_rate(self, pair: dict[str, Any]) -> float
-⋮----
-funding = pair["funding"]
-latest = funding.get("latest")
-⋮----
-raw_value = latest.get("fundingRate") or latest.get("funding_rate") or 0.0
-⋮----
-history = funding.get("history") or []
-⋮----
-raw_value = history[-1].get("fundingRate") or history[-1].get("funding_rate") or 0.0
-⋮----
-def _position_amount(self, price: float) -> float
-⋮----
-def _metadata(self, spot_symbol: str, futures_symbol: str, funding_rate: float, price: float) -> dict[str, Any]
-⋮----
-def _position_key(self, market_type: MarketType, symbol: str) -> str
-⋮----
-def _normalize_symbol(self, symbol: str) -> str
-</file>
-
 <file path="src/quant_signal_sdk/data_provider.py">
 class DataProvider(ABC)
 ⋮----
@@ -644,93 +677,6 @@ __all__ = ["Runner"]
 __all__ = [
 </file>
 
-<file path="src/quant_signal_sdk/runtime/adapters.py">
-logger = logging.getLogger(__name__)
-⋮----
-class LiveRESTFeed
-⋮----
-def stream(self) -> Iterator[MarketEvent]
-⋮----
-spot_ohlcv = self._exchange.fetch_ohlcv(self._spot_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
-futures_ohlcv = self._exchange.fetch_ohlcv(self._futures_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
-⋮----
-funding_history: list[Any] = []
-⋮----
-funding_history = self._exchange.fetch_funding_rate_history(self._futures_symbol, limit=self._funding_limit)
-⋮----
-timestamp = self._latest_timestamp(spot_ohlcv, futures_ohlcv)
-payload = {
-⋮----
-def _build_exchange(self) -> Any
-⋮----
-import ccxt  # type: ignore
-except Exception as exc:  # pragma: no cover - import guard
-⋮----
-exchange_class = getattr(ccxt, self._exchange_id)
-exchange = exchange_class(self._config)
-⋮----
-def _latest_timestamp(self, spot_ohlcv: list[Any], futures_ohlcv: list[Any]) -> datetime
-⋮----
-latest_ms = None
-⋮----
-candidate = rows[-1][0]
-⋮----
-latest_ms = candidate
-⋮----
-class LiveHTTPDispatcher
-⋮----
-def __init__(self, client: QuantSignalClient, bot_api_key: str | None = None) -> None
-⋮----
-def dispatch(self, signal: SignalPayload) -> None
-⋮----
-payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
-⋮----
-response = exc.response
-⋮----
-def _normalize_local_datetime(self, value: str) -> str
-⋮----
-class ParquetReplayFeed
-⋮----
-def __init__(self, dataframe: "pd.DataFrame", timestamp_column: str | None = None) -> None
-⋮----
-columns = list(self._dataframe.columns)
-timestamp_position = self._timestamp_position(columns)
-⋮----
-timestamp = self._extract_timestamp_from_tuple(row, timestamp_position)
-payload = self._payload_from_tuple(row, columns, timestamp_position)
-⋮----
-def _timestamp_position(self, columns: list[str]) -> int | None
-⋮----
-def _extract_timestamp_from_tuple(self, row: tuple[Any, ...], timestamp_position: int | None) -> datetime
-⋮----
-index_value = row[0]
-⋮----
-value = index_value.to_pydatetime()
-⋮----
-def _payload_from_tuple(self, row: tuple[Any, ...], columns: list[str], timestamp_position: int | None) -> dict[str, Any]
-⋮----
-payload: dict[str, Any] = {}
-⋮----
-value = row[position]
-⋮----
-def _coerce_timestamp(self, value: Any) -> datetime
-⋮----
-parsed_text = str(value).replace("Z", "+00:00")
-parsed = datetime.fromisoformat(parsed_text)
-⋮----
-class MockDispatcher
-⋮----
-def __init__(self) -> None
-⋮----
-def export_csv(self, file_path: str | Path) -> None
-⋮----
-path = Path(file_path)
-⋮----
-field_names = [
-⋮----
-writer = csv.DictWriter(handle, fieldnames=field_names)
-</file>
-
 <file path="src/quant_signal_sdk/runtime/interfaces.py">
 Signal: TypeAlias = SignalPayload
 ⋮----
@@ -744,6 +690,13 @@ payload: dict[str, Any]
 class PortfolioContext
 ⋮----
 positions: dict[str, Any] = field(default_factory=dict)
+cash: float = 0.0
+open_orders: dict[str, Any] = field(default_factory=dict)
+realized_pnl: float = 0.0
+unrealized_pnl: float = 0.0
+total_fees: float = 0.0
+equity: float = 0.0
+timestamp: datetime | None = None
 ⋮----
 class BaseFeed(Protocol)
 ⋮----
@@ -764,110 +717,6 @@ def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[Signal
 """Return signals for the current event and portfolio snapshot."""
 </file>
 
-<file path="src/quant_signal_sdk/runtime/runner.py">
-logger = logging.getLogger(__name__)
-⋮----
-class Runner
-⋮----
-@property
-    def context(self) -> PortfolioContext
-⋮----
-def run(self) -> PortfolioContext
-⋮----
-signals = self._strategy.on_event(event, self._snapshot_context())
-⋮----
-def _snapshot_context(self) -> PortfolioContext
-⋮----
-def _apply_signal(self, context: PortfolioContext, signal: SignalPayload) -> PortfolioContext
-⋮----
-positions = self._copy_positions(context.positions)
-position_key = self._position_key(signal)
-⋮----
-def _copy_positions(self, positions: dict[str, Any]) -> dict[str, Any]
-⋮----
-def _position_key(self, signal: SignalPayload) -> str
-⋮----
-def _build_position_state(self, signal: SignalPayload) -> dict[str, Any]
-⋮----
-side = "LONG" if signal.action == SignalAction.OPEN_LONG else "SHORT"
-</file>
-
-<file path="src/quant_signal_sdk/translator.py">
-class BoundaryValidationException(Exception)
-⋮----
-"""Raised when the data boundary contract is violated (e.g. time gaps detected)."""
-⋮----
-class RiskManager
-⋮----
-"""
-    Interface for calculating risk parameters like Stop Loss (SL) and Take Profit (TP).
-    Allows decoupling of risk calculation from signal transport/boundary layers.
-    """
-⋮----
-class PercentageRiskManager(RiskManager)
-⋮----
-"""Simple percentage-based SL/TP risk manager."""
-def __init__(self, sl_percent: float, tp_percent: float)
-⋮----
-sl = entry * (1.0 - self.sl_percent)
-tp = entry * (1.0 + self.tp_percent)
-⋮----
-sl = entry * (1.0 + self.sl_percent)
-tp = entry * (1.0 - self.tp_percent)
-⋮----
-class SignalTranslator
-⋮----
-"""
-    The Boundary Guard ensures a strategy's intent is validated at the data boundary
-    before it is serialized to the backend payload shape.
-    """
-⋮----
-def __init__(self, logger: logging.Logger | None = None)
-⋮----
-def validate_timeframe_integrity(self, df: pd.DataFrame, expected_timeframe: str)
-⋮----
-"""
-        Validate that candle timelines form a continuous contiguous sequence.
-        Raises BoundaryValidationException if large data gaps detected.
-        """
-⋮----
-# Perform raw index-diff analysis
-diffs = df.index.to_series().diff().dropna()
-mode_diff = diffs.mode()[0]
-⋮----
-last_diff = diffs.iloc[-1]
-⋮----
-# Tolerate dynamic diffs up to 1.5x interval mode
-⋮----
-def to_backend_payload(self, signal: SignalPayload) -> dict[str, Any]
-⋮----
-"""Serialize a validated signal model into the backend contract shape."""
-</file>
-
-<file path="tests/fixtures/contracts/sdk_signal_payload_v1.json">
-{
-  "signalId": "sig-contract-001",
-  "botId": "bot-contract-001",
-  "action": "OPEN_LONG",
-  "symbol": "BTCUSDT",
-  "marketType": "SPOT",
-  "orderType": "LIMIT",
-  "entry": 29000.0,
-  "stopLoss": 28000.0,
-  "takeProfit": 30000.0,
-  "amount": 0.01,
-  "leverage": 1,
-  "marginMode": "CROSS",
-  "reduceOnly": false,
-  "status": "RECEIVED",
-  "generatedTimestamp": "2026-04-01T12:00:00Z",
-  "timeframe": "1h",
-  "metadata": {
-    "strategy": "contract-fixture"
-  }
-}
-</file>
-
 <file path="tests/fixtures/contracts/sdk_signature_vector_v1.json">
 {
   "payload": {
@@ -881,24 +730,69 @@ def to_backend_payload(self, signal: SignalPayload) -> dict[str, Any]
 }
 </file>
 
-<file path="tests/test_models.py">
-def test_signalpayload_symbol_normalize_and_validation()
+<file path="tests/test_funding_arbitrage_bot.py">
+class TestFundingArbitrageBot(unittest.TestCase)
 ⋮----
-s = SignalPayload(
+def test_feature_engineering_basic(self) -> None
 ⋮----
-def test_signalpayload_invalid_entry_validation()
+engineer = QuantFeatureEngineer()
 ⋮----
-def test_signalpayload_legacy_field_mapping()
+# Build mock dataframes
+idx = pd.date_range(end="2026-05-25 00:00:00", periods=200, freq="h")
+ohlcv = pd.DataFrame(
+funding = pd.DataFrame(
 ⋮----
-# Instantiate with legacy fields
+features = engineer.calculate_features("BTC/USDT:USDT", ohlcv, funding)
 ⋮----
-timestamp=1716500000000,  # millisecond timestamp
+def test_arbitrage_bot_heuristic_ranking(self) -> None
 ⋮----
-# Assert correct translations
+bot = ArbitrageBot(model_paths=[], features=[])
 ⋮----
-# Check deprecation warnings
+feature_df = pd.DataFrame(
 ⋮----
-warning_messages = [str(warn.message) for warn in w]
+ranked = bot.predict_scores(feature_df)
+⋮----
+# ETH has higher sum_funding_24h, so it should rank higher when sorting by predicted_score descending
+ranked_sorted = ranked.sort_values(by="predicted_score", ascending=False).reset_index(drop=True)
+⋮----
+def test_state_manager_portfolio(self) -> None
+⋮----
+tmp_path = tmp.name
+⋮----
+state_mgr = StateManager(filepath=tmp_path)
+# Empty state initially
+⋮----
+# Save portfolio
+test_pairs = {"BTC/USDT:USDT": 1.5, "ETH/USDT:USDT": 2.0}
+⋮----
+# Reload
+loaded = state_mgr.load_portfolio()
+⋮----
+@patch("quant_signal_sdk.client.QuantSignalClient.send_payload")
+    def test_dispatch_arbitrage_orders_sends_spot_and_future(self, mock_send_payload: MagicMock) -> None
+⋮----
+client = QuantSignalClient(base_url="http://localhost:8080", api_key="bot_key", default_bot_id="my_bot")
+⋮----
+# Should have sent 2 payloads: 1 SPOT, 1 FUTURE
+⋮----
+# Verify call arguments
+calls = mock_send_payload.call_args_list
+spot_payload = calls[0][0][0]
+future_payload = calls[1][0][0]
+⋮----
+# Verify Spot leg details
+⋮----
+# Verify Futures leg details
+⋮----
+def test_fetch_arbitrage_candidates(self) -> None
+⋮----
+mock_exchange = MagicMock()
+⋮----
+"SOL/USDT:USDT": {"swap": True, "active": True, "linear": True, "base": "SOL", "quote": "USDT"}, # No spot
+⋮----
+candidates = fetch_arbitrage_candidates(mock_exchange)
+⋮----
+# BTC and ETH have spot counterparts, SOL does not
 </file>
 
 <file path="tests/test_sample_bot_example.py">
@@ -915,20 +809,184 @@ returned_raw_secret = "sk_example_123"
 # Example logic: attach returned_raw_secret when client has no signer_secret
 </file>
 
-<file path="tests/test_strategy.py">
-def test_sma_insufficient_data()
+<file path="tests/test_translator_policies.py">
+def test_build_policies_from_candles_15m_4_candles()
 ⋮----
-strat = SimpleSmaStrategy(short_window=3, long_window=5)
+tr = SignalTranslator()
+now = int(time.time())
+policies = tr.build_policies_from_candles(cancel_after_candles=4, timeframe="15m")
 ⋮----
-def test_sma_generates_signal_open_long_and_short()
+# Expected delta is 4 * 15m = 3600 seconds
+expected = now + 3600
+# allow 3s tolerance
+</file>
+
+<file path="examples/funding_arbitrage_evented.py">
+#!/usr/bin/env python3
+"""Event-driven funding arbitrage example.
+
+This entrypoint demonstrates the new kernel wiring:
+Feed -> Strategy -> Dispatcher -> Runner.
+"""
 ⋮----
-strat = SimpleSmaStrategy(short_window=2, long_window=3)
-# prices where short MA > long MA -> OPEN_LONG
-payload = strat.generate_signal_payload("bot", [10, 11, 12, 13, 14])
+logger = logging.getLogger(__name__)
 ⋮----
-def test_percentage_risk_manager()
+def build_parser() -> argparse.ArgumentParser
 ⋮----
-rm = PercentageRiskManager(sl_percent=0.02, tp_percent=0.05)
+parser = argparse.ArgumentParser(description="Event-driven funding arbitrage example")
+⋮----
+def load_initial_context(state_path: str | None) -> PortfolioContext
+⋮----
+path = Path(state_path)
+⋮----
+raw = json.loads(path.read_text(encoding="utf-8"))
+⋮----
+positions = raw.get("positions") or raw.get("active_positions") or {}
+hydrated_positions: dict[str, dict[str, Any]] = {}
+fallback_timestamp = raw.get("updated_at") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+⋮----
+def dump_context_snapshot(state_path: str, context: PortfolioContext) -> None
+⋮----
+payload = {
+⋮----
+def build_runner(args: argparse.Namespace) -> tuple[Runner, object]
+⋮----
+config = FundingArbitrageConfig(
+strategy = FundingArbitrageStrategy(bot_id=args.bot_id, config=config)
+initial_context = load_initial_context(args.state_json)
+⋮----
+dataframe = pd.read_csv(args.replay_csv)
+feed = ParquetReplayFeed(dataframe)
+⋮----
+feed = LiveRESTFeed(
+⋮----
+dispatcher = MockDispatcher()
+⋮----
+client = QuantSignalClient(
+dispatcher = LiveHTTPDispatcher(client, bot_api_key=args.bot_api_key)
+⋮----
+# Build optional execution policies from CLI flags
+policies = None
+⋮----
+now_epoch = int(time.time())
+maxp = args.max_size_percent
+# allow 0-100 convenience
+⋮----
+maxp = maxp / 100.0
+⋮----
+cancel_ts = None
+⋮----
+cancel_ts = now_epoch + int(args.cancel_after_seconds)
+⋮----
+close_ts = None
+⋮----
+close_ts = now_epoch + int(args.close_after_seconds)
+⋮----
+policies = ExecutionPolicies(
+⋮----
+# If policies provided, wrap dispatcher to inject them into emitted signals
+⋮----
+class PoliciesInjectingDispatcher
+⋮----
+def __init__(self, base, policies)
+⋮----
+def dispatch(self, signal: SignalPayload) -> None
+⋮----
+copied = signal.model_copy(deep=True)
+⋮----
+def export_csv(self, *args, **kwargs)
+⋮----
+dispatcher = PoliciesInjectingDispatcher(dispatcher, policies)
+⋮----
+def after_signal_applied(_: SignalPayload, context: PortfolioContext) -> None
+⋮----
+runner = Runner(
+⋮----
+def main() -> None
+⋮----
+args = build_parser().parse_args()
+log_level_name = (args.log_level or os.getenv("LOG_LEVEL") or "INFO").upper()
+</file>
+
+<file path="examples/sniper_sdk_refactor.py">
+"""
+Clean Architecture Refactor: ML Sniper Bot powered by Quant Signal SDK.
+
+This version demonstrates how to leverage DataProvider, FeatureEngineer, 
+and the Boundary Guard (SignalTranslator) to achieve strict execution isolation.
+"""
+⋮----
+# Import our standardized SDK boundaries
+⋮----
+class CleanMlSniperBot
+⋮----
+# Instantiate foundational SDK guards
+⋮----
+# Placeholder for loading production ML model
+⋮----
+def _load_ml_model(self)
+⋮----
+# In production: self.model = joblib.load('selector.joblib')
+⋮----
+def _mock_ml_predict(self, features: pd.DataFrame) -> bool
+⋮----
+"""Simulated ML evaluation step."""
+⋮----
+# Example heuristic logic mapping to an ML outcome
+last_row = features.iloc[-1]
+# Fake logic: If closing above 20 SMA and having an ATR range
+⋮----
+def process_symbol(self, symbol: str, timeframe: str = "1h")
+⋮----
+"""Core orchestrated pipeline for a single symbol."""
+⋮----
+# STEP 1: Unified Data Retrieval (No manual API/file logic)
+df = self.data_provider.fetch_ohlcv(symbol, timeframe, limit=100)
+⋮----
+# STEP 2: Standardized Feature Engineering
+# Ensure train-set feature pipeline exactly matches run-set pipeline
+df = self.engineer.apply_pipeline(
+⋮----
+# STEP 3: Run Prediction intent
+is_buy_trigger = self._mock_ml_predict(df)
+⋮----
+# STEP 4: Boundary Guard Validation (The Safety Net)
+# Explicitly check for time-gaps BEFORE translating to financial intent.
+⋮----
+# STEP 5: Translate to backend payload shape
+# Calculating precise stop levels relying on engineered features (ATR)
+last_close = float(df.iloc[-1]["close"])
+current_atr = float(df.iloc[-1]["atr"])
+⋮----
+# Dynamic 2xATR stop loss calculation
+calculated_sl = last_close - (current_atr * 2.0)
+calculated_tp = last_close + (current_atr * 3.0)
+⋮----
+signal = SignalPayload(
+⋮----
+final_payload = self.translator.to_backend_payload(signal)
+⋮----
+# STEP 6: Safe Dispatch to Backend
+⋮----
+resp = self.client.send_payload(final_payload)
+⋮----
+def main()
+⋮----
+# Mock config (Use ENV in production)
+BASE_URL = "http://localhost:8080"
+BOT_API_KEY = os.getenv("MARCUS_BOT_API_KEY", "mock-api-key")
+⋮----
+# Initializing SDK Infrastructure
+sdk_client = QuantSignalClient(base_url=BASE_URL, api_key=BOT_API_KEY)
+data_src = CcxtDataProvider(exchange_id="binance")
+⋮----
+# Inject dependencies into Bot Orchestrator
+bot = CleanMlSniperBot(
+⋮----
+# Scan loop
+targets = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+⋮----
+time.sleep(1) # polite rate limit
 </file>
 
 <file path="src/quant_signal_sdk.egg-info/PKG-INFO">
@@ -1078,6 +1136,336 @@ tests/test_quant_signal_sdk.py
 tests/test_strategy.py
 </file>
 
+<file path="src/quant_signal_sdk/core_strategy.py">
+@dataclass(slots=True)
+class FundingArbitrageConfig
+⋮----
+target_notional: float = 10.0
+min_hold_hours: float = 8.0
+open_funding_threshold: float = 0.0
+close_funding_threshold: float = 0.0
+leverage: int = 1
+margin_mode: MarginMode = MarginMode.CROSS
+⋮----
+class FundingArbitrageStrategy(BaseStrategy)
+⋮----
+def __init__(self, bot_id: str, config: FundingArbitrageConfig | None = None) -> None
+⋮----
+def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[SignalPayload]
+⋮----
+pair = self._extract_pair(event.payload)
+⋮----
+spot_symbol = self._normalize_symbol(pair["spot_symbol"])
+futures_symbol = self._normalize_symbol(pair["futures_symbol"])
+latest_price = self._extract_price(pair)
+funding_rate = self._extract_funding_rate(pair)
+⋮----
+spot_key = self._position_key(MarketType.SPOT, spot_symbol)
+futures_key = self._position_key(MarketType.FUTURE, futures_symbol)
+has_spot = spot_key in context.positions
+has_futures = futures_key in context.positions
+has_position = has_spot or has_futures
+⋮----
+position = context.positions.get(futures_key) or context.positions.get(spot_key)
+⋮----
+opened_at = position.get("generated_timestamp") or position.get("opened_at")
+⋮----
+opened_ts = opened_at if opened_at.tzinfo else opened_at.replace(tzinfo=timezone.utc)
+held_hours = (event.timestamp - opened_ts).total_seconds() / 3600.0
+⋮----
+amount = self._position_amount(price)
+metadata = self._metadata(spot_symbol, futures_symbol, funding_rate, price)
+⋮----
+def _extract_pair(self, payload: dict[str, Any]) -> dict[str, Any] | None
+⋮----
+spot = payload.get("spot")
+futures = payload.get("futures")
+funding = payload.get("funding")
+⋮----
+spot_symbol = str(spot.get("symbol") or "").strip()
+futures_symbol = str(futures.get("symbol") or "").strip()
+⋮----
+def _extract_price(self, pair: dict[str, Any]) -> float
+⋮----
+latest = source.get("latest")
+⋮----
+def _extract_funding_rate(self, pair: dict[str, Any]) -> float
+⋮----
+funding = pair["funding"]
+latest = funding.get("latest")
+⋮----
+raw_value = latest.get("fundingRate") or latest.get("funding_rate") or 0.0
+⋮----
+history = funding.get("history") or []
+⋮----
+raw_value = history[-1].get("fundingRate") or history[-1].get("funding_rate") or 0.0
+⋮----
+def _position_amount(self, price: float) -> float
+⋮----
+def _metadata(self, spot_symbol: str, futures_symbol: str, funding_rate: float, price: float) -> dict[str, Any]
+⋮----
+def _position_key(self, market_type: MarketType, symbol: str) -> str
+⋮----
+def _normalize_symbol(self, symbol: str) -> str
+</file>
+
+<file path="src/quant_signal_sdk/runtime/adapters.py">
+logger = logging.getLogger(__name__)
+⋮----
+class LiveRESTFeed
+⋮----
+def stream(self) -> Iterator[MarketEvent]
+⋮----
+spot_ohlcv = self._exchange.fetch_ohlcv(self._spot_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
+futures_ohlcv = self._exchange.fetch_ohlcv(self._futures_symbol, timeframe=self._timeframe, limit=self._ohlcv_limit)
+⋮----
+funding_history: list[Any] = []
+⋮----
+funding_history = self._exchange.fetch_funding_rate_history(self._futures_symbol, limit=self._funding_limit)
+⋮----
+timestamp = self._latest_timestamp(spot_ohlcv, futures_ohlcv)
+payload = {
+⋮----
+def _build_exchange(self) -> Any
+⋮----
+import ccxt  # type: ignore
+except Exception as exc:  # pragma: no cover - import guard
+⋮----
+exchange_class = getattr(ccxt, self._exchange_id)
+exchange = exchange_class(self._config)
+⋮----
+def _latest_timestamp(self, spot_ohlcv: list[Any], futures_ohlcv: list[Any]) -> datetime
+⋮----
+latest_ms = None
+⋮----
+candidate = rows[-1][0]
+⋮----
+latest_ms = candidate
+⋮----
+class LiveHTTPDispatcher
+⋮----
+def __init__(self, client: QuantSignalClient, bot_api_key: str | None = None) -> None
+⋮----
+def dispatch(self, signal: SignalPayload) -> None
+⋮----
+payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
+⋮----
+response = exc.response
+⋮----
+def _normalize_local_datetime(self, value: str) -> str
+⋮----
+class ParquetReplayFeed
+⋮----
+def __init__(self, dataframe: "pd.DataFrame", timestamp_column: str | None = None) -> None
+⋮----
+columns = list(self._dataframe.columns)
+timestamp_position = self._timestamp_position(columns)
+⋮----
+timestamp = self._extract_timestamp_from_tuple(row, timestamp_position)
+payload = self._payload_from_tuple(row, columns, timestamp_position)
+⋮----
+def _timestamp_position(self, columns: list[str]) -> int | None
+⋮----
+def _extract_timestamp_from_tuple(self, row: tuple[Any, ...], timestamp_position: int | None) -> datetime
+⋮----
+index_value = row[0]
+⋮----
+value = index_value.to_pydatetime()
+⋮----
+def _payload_from_tuple(self, row: tuple[Any, ...], columns: list[str], timestamp_position: int | None) -> dict[str, Any]
+⋮----
+payload: dict[str, Any] = {}
+⋮----
+value = row[position]
+⋮----
+def _coerce_timestamp(self, value: Any) -> datetime
+⋮----
+parsed_text = str(value).replace("Z", "+00:00")
+parsed = datetime.fromisoformat(parsed_text)
+⋮----
+class MockDispatcher
+⋮----
+def __init__(self) -> None
+⋮----
+def export_csv(self, file_path: str | Path) -> None
+⋮----
+path = Path(file_path)
+⋮----
+field_names = [
+⋮----
+writer = csv.DictWriter(handle, fieldnames=field_names)
+</file>
+
+<file path="src/quant_signal_sdk/runtime/runner.py">
+logger = logging.getLogger(__name__)
+⋮----
+class Runner
+⋮----
+@property
+    def context(self) -> PortfolioContext
+⋮----
+def run(self) -> PortfolioContext
+⋮----
+signals = self._strategy.on_event(event, self._snapshot_context())
+⋮----
+def _snapshot_context(self) -> PortfolioContext
+⋮----
+def _apply_signal(self, context: PortfolioContext, signal: SignalPayload) -> PortfolioContext
+⋮----
+positions = self._copy_positions(context.positions)
+position_key = self._position_key(signal)
+⋮----
+def _copy_positions(self, positions: dict[str, Any]) -> dict[str, Any]
+⋮----
+def _position_key(self, signal: SignalPayload) -> str
+⋮----
+def _build_position_state(self, signal: SignalPayload) -> dict[str, Any]
+⋮----
+side = "LONG" if signal.action == SignalAction.OPEN_LONG else "SHORT"
+</file>
+
+<file path="src/quant_signal_sdk/signing.py">
+def _canonical_json(payload: Mapping[str, Any]) -> str
+⋮----
+def generate_hmac_signature(payload: Mapping[str, Any], secret: str, timestamp: str | None = None) -> str
+⋮----
+message_text = _canonical_json(payload)
+⋮----
+message_text = f"{timestamp}\n{message_text}"
+message = message_text.encode("utf-8")
+key = secret.encode("utf-8")
+</file>
+
+<file path="src/quant_signal_sdk/translator.py">
+class BoundaryValidationException(Exception)
+⋮----
+"""Raised when the data boundary contract is violated (e.g. time gaps detected)."""
+⋮----
+class RiskManager
+⋮----
+"""
+    Interface for calculating risk parameters like Stop Loss (SL) and Take Profit (TP).
+    Allows decoupling of risk calculation from signal transport/boundary layers.
+    """
+⋮----
+class PercentageRiskManager(RiskManager)
+⋮----
+"""Simple percentage-based SL/TP risk manager."""
+def __init__(self, sl_percent: float, tp_percent: float)
+⋮----
+sl = entry * (1.0 - self.sl_percent)
+tp = entry * (1.0 + self.tp_percent)
+⋮----
+sl = entry * (1.0 + self.sl_percent)
+tp = entry * (1.0 - self.tp_percent)
+⋮----
+class SignalTranslator
+⋮----
+"""
+    The Boundary Guard ensures a strategy's intent is validated at the data boundary
+    before it is serialized to the backend payload shape.
+    """
+⋮----
+def __init__(self, logger: logging.Logger | None = None)
+⋮----
+def validate_timeframe_integrity(self, df: pd.DataFrame, expected_timeframe: str)
+⋮----
+"""
+        Validate that candle timelines form a continuous contiguous sequence.
+        Raises BoundaryValidationException if large data gaps detected.
+        """
+⋮----
+# Perform raw index-diff analysis
+diffs = df.index.to_series().diff().dropna()
+mode_diff = diffs.mode()[0]
+⋮----
+last_diff = diffs.iloc[-1]
+⋮----
+# Tolerate dynamic diffs up to 1.5x interval mode
+⋮----
+def to_backend_payload(self, signal: SignalPayload) -> dict[str, Any]
+⋮----
+"""Serialize a validated signal model into the backend contract shape."""
+⋮----
+"""Convert candle-based timeouts into absolute UNIX-second timestamps.
+
+        Example: cancel_after_candles=4 and timeframe='15m' -> cancelOrderAfter = now + 4*900
+        Returns an ExecutionPolicies instance or None when no inputs provided.
+        """
+⋮----
+tf = timeframe.strip().lower()
+⋮----
+m = re.match(r"^(\d+)([smhdw])$", tf)
+⋮----
+qty = int(m.group(1))
+unit = m.group(2)
+unit_seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
+candle_seconds = qty * unit_seconds
+⋮----
+now = int(time.time())
+kwargs: dict[str, int] = {}
+</file>
+
+<file path="tests/fixtures/contracts/sdk_signal_payload_v1.json">
+{
+  "signalId": "sig-contract-001",
+  "botId": "bot-contract-001",
+  "action": "OPEN_LONG",
+  "symbol": "BTCUSDT",
+  "marketType": "SPOT",
+  "orderType": "LIMIT",
+  "entry": 29000.0,
+  "stopLoss": 28000.0,
+  "takeProfit": 30000.0,
+  "amount": 0.01,
+  "leverage": 1,
+  "marginMode": "CROSS",
+  "reduceOnly": false,
+  "status": "RECEIVED",
+  "generatedTimestamp": "2026-04-01T12:00:00Z",
+  "timeframe": "1h",
+  "metadata": {
+    "strategy": "contract-fixture"
+  }
+}
+</file>
+
+<file path="tests/test_models.py">
+def test_signalpayload_symbol_normalize_and_validation()
+⋮----
+s = SignalPayload(
+⋮----
+def test_signalpayload_invalid_entry_validation()
+⋮----
+def test_signalpayload_legacy_field_mapping()
+⋮----
+# Instantiate with legacy fields
+⋮----
+timestamp=1716500000000,  # millisecond timestamp
+⋮----
+# Assert correct translations
+⋮----
+# Check deprecation warnings
+⋮----
+warning_messages = [str(warn.message) for warn in w]
+</file>
+
+<file path="tests/test_strategy.py">
+def test_sma_insufficient_data()
+⋮----
+strat = SimpleSmaStrategy(short_window=3, long_window=5)
+⋮----
+def test_sma_generates_signal_open_long_and_short()
+⋮----
+strat = SimpleSmaStrategy(short_window=2, long_window=3)
+# prices where short MA > long MA -> OPEN_LONG
+payload = strat.generate_signal_payload("bot", [10, 11, 12, 13, 14])
+⋮----
+def test_percentage_risk_manager()
+⋮----
+rm = PercentageRiskManager(sl_percent=0.02, tp_percent=0.05)
+</file>
+
 <file path="src/quant_signal_sdk/models.py">
 class SignalSide(str, Enum)
 ⋮----
@@ -1140,6 +1528,8 @@ status: SignalStatus | None = None
 generated_timestamp: datetime = Field(
 timeframe: str | None = None
 metadata: dict[str, Any] = Field(default_factory=dict)
+# Execution policies: optional strict contract for executor behavior
+policies: Optional["ExecutionPolicies"] = Field(default=None)
 ⋮----
 @model_validator(mode="before")
 @classmethod
@@ -1163,18 +1553,33 @@ conf_val = data.pop("confidence_score")
 ⋮----
 symbol = value.strip().upper()
 cleaned = symbol.replace("_", "").replace("-", "")
+⋮----
+class ExecutionPolicies(BaseModel)
+⋮----
+# 0-1 fraction (e.g. 0.1 == 10%)
+max_size_percent: float | None = Field(default=None, alias="maxSizePercent", ge=0.0, le=1.0)
+# Absolute UNIX seconds (int). Accepts datetime or ms/seconds numeric in input.
+cancel_order_after: int | None = Field(default=None, alias="cancelOrderAfter")
+close_position_after: int | None = Field(default=None, alias="closePositionAfter")
+⋮----
+@field_validator("cancel_order_after", "close_position_after", mode="before")
+@classmethod
+    def _coerce_timestamp(cls, v)
+⋮----
+# Accept milliseconds as large ints (>1e11)
 </file>
 
-<file path="src/quant_signal_sdk/signing.py">
-def _canonical_json(payload: Mapping[str, Any]) -> str
+<file path="src/quant_signal_sdk/network.py">
+RETRY_STATUS_CODES = (500, 502, 503, 504)
 ⋮----
-def generate_hmac_signature(payload: Mapping[str, Any], secret: str, timestamp: str | None = None) -> str
+class NetworkClientProtocol(Protocol)
 ⋮----
-message_text = _canonical_json(payload)
+class NetworkClient
 ⋮----
-message_text = f"{timestamp}\n{message_text}"
-message = message_text.encode("utf-8")
-key = secret.encode("utf-8")
+retry_policy = Retry(
+adapter = HTTPAdapter(max_retries=retry_policy)
+⋮----
+canonical_body = json.dumps(json_body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 </file>
 
 <file path="src/quant_signal_sdk/strategy.py">
@@ -1293,17 +1698,120 @@ payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
 result = send_signal_via_client(sdk_client, payload, bot_api_key=bot_api_key)
 </file>
 
-<file path="src/quant_signal_sdk/network.py">
-RETRY_STATUS_CODES = (500, 502, 503, 504)
+<file path="README.md">
+# Quant Signal SDK
+
+This repository now contains only the developer SDK package: `quant_signal_sdk`.
+
+Local executor client code has been moved to `local-executor-client` in the workspace.
+
+## Features
+- Pydantic signal models and enums (`SignalPayload`, `SignalSide`, `SignalAction`).
+- Retry-enabled HTTP transport (`NetworkClient`) using `requests` and `urllib3.Retry`.
+- Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
+- High-level API client (`QuantSignalClient`) for authenticated signal submission.
+- Minimal `BaseStrategy` contract for strategy inheritance.
+- In-memory portfolio backtest runner with OHLCV replay and execution-policy enforcement.
+
+## Quickstart
+```python
+from quant_signal_sdk import QuantSignalClient, SignalPayload
+
+client = QuantSignalClient(
+    base_url="https://api.example.com",
+    api_key="your-api-key",
+    signer_secret="optional-signing-secret",
+)
+
+signal = SignalPayload(
+    side="LONG",
+    action="OPEN_LONG",
+    symbol="BTCUSDT",
+    tp=72000,
+    sl=68500,
+    confidence_score=0.84,
+    metadata={"strategy": "trend_v1"},
+)
+
+result = client.send_signal(signal)
+print(result)
+```
+
+## Backtest
+
+Create a `my_bot.py` file that exports a strategy class or `STRATEGY` object with `on_event(...)`, then run:
+
+```bash
+quant-sdk backtest --bot-file my_bot.py --data-csv candles.csv --initial-cash 1000
+```
+
+The backtest engine replays OHLCV candles, queues signals for the next tick, and prints a simple portfolio summary when the run completes.
+
+## Requirements
+- Python 3.10+
+
+## Setup
+Install the library for local development:
+
+```bash
+pip install -e .
+```
+
+Install with SDK development tools:
+
+```bash
+pip install -e .[dev]
+```
+
+Install optional market-data helpers:
+
+```bash
+pip install -e .[market-data]
+```
+
+Install both dev and market-data extras together:
+
+```bash
+pip install -e .[dev,market-data]
+```
+
+## Tests
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Example: register -> signer secret behavior
+
+When registering a bot via the example `examples/sample_bot.py`, the backend returns
+both an `apiKey` (runtime API key) and a `rawSecret` (signer secret). The example
+attaches the returned `rawSecret` to the `QuantSignalClient` as the `signer_secret`
+when the user did not already supply one. This ensures subsequent signal POSTs
+include the required `X-Timestamp` and `X-Signature` headers that the server
+validates.
+
+If you prefer to manage signing secrets yourself, pass `--bot-signer-secret` to
+the example and the returned `rawSecret` will not overwrite it.
+
+
+## Build
+```bash
+python -m build --sdist --wheel
+```
+
+## Contract Fixtures
+- SDK fixtures are versioned under `tests/fixtures/contracts`.
+- SDK compatibility checks are in `tests/test_contract_compatibility_sdk.py`.
+</file>
+
+<file path="src/quant_signal_sdk/__init__.py">
+"""Public API for quant_signal_sdk.
+
+The package intentionally exposes a minimal surface area: `QuantSignalClient`,
+the `SignalPayload` model and enums, `BaseStrategy`, and the `generate_hmac_signature`
+helper. Example/demo bots and heavy deps (CCXT usage) live under `examples/`.
+"""
 ⋮----
-class NetworkClientProtocol(Protocol)
-⋮----
-class NetworkClient
-⋮----
-retry_policy = Retry(
-adapter = HTTPAdapter(max_retries=retry_policy)
-⋮----
-canonical_body = json.dumps(json_body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+__all__ = [
 </file>
 
 <file path="tests/test_client.py">
@@ -1418,111 +1926,6 @@ signal = SignalPayload(
 response = client.send_signal(signal)
 ⋮----
 call = fake_network.calls[0]
-</file>
-
-<file path="README.md">
-# Quant Signal SDK
-
-This repository now contains only the developer SDK package: `quant_signal_sdk`.
-
-Local executor client code has been moved to `local-executor-client` in the workspace.
-
-## Features
-- Pydantic signal models and enums (`SignalPayload`, `SignalSide`, `SignalAction`).
-- Retry-enabled HTTP transport (`NetworkClient`) using `requests` and `urllib3.Retry`.
-- Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
-- High-level API client (`QuantSignalClient`) for authenticated signal submission.
-- Minimal `BaseStrategy` contract for strategy inheritance.
-
-## Quickstart
-```python
-from quant_signal_sdk import QuantSignalClient, SignalPayload
-
-client = QuantSignalClient(
-    base_url="https://api.example.com",
-    api_key="your-api-key",
-    signer_secret="optional-signing-secret",
-)
-
-signal = SignalPayload(
-    side="LONG",
-    action="OPEN_LONG",
-    symbol="BTCUSDT",
-    tp=72000,
-    sl=68500,
-    confidence_score=0.84,
-    metadata={"strategy": "trend_v1"},
-)
-
-result = client.send_signal(signal)
-print(result)
-```
-
-## Requirements
-- Python 3.10+
-
-## Setup
-Install the library for local development:
-
-```bash
-pip install -e .
-```
-
-Install with SDK development tools:
-
-```bash
-pip install -e .[dev]
-```
-
-Install optional market-data helpers:
-
-```bash
-pip install -e .[market-data]
-```
-
-Install both dev and market-data extras together:
-
-```bash
-pip install -e .[dev,market-data]
-```
-
-## Tests
-```bash
-python -m unittest discover -s tests -v
-```
-
-## Example: register -> signer secret behavior
-
-When registering a bot via the example `examples/sample_bot.py`, the backend returns
-both an `apiKey` (runtime API key) and a `rawSecret` (signer secret). The example
-attaches the returned `rawSecret` to the `QuantSignalClient` as the `signer_secret`
-when the user did not already supply one. This ensures subsequent signal POSTs
-include the required `X-Timestamp` and `X-Signature` headers that the server
-validates.
-
-If you prefer to manage signing secrets yourself, pass `--bot-signer-secret` to
-the example and the returned `rawSecret` will not overwrite it.
-
-
-## Build
-```bash
-python -m build --sdist --wheel
-```
-
-## Contract Fixtures
-- SDK fixtures are versioned under `tests/fixtures/contracts`.
-- SDK compatibility checks are in `tests/test_contract_compatibility_sdk.py`.
-</file>
-
-<file path="src/quant_signal_sdk/__init__.py">
-"""Public API for quant_signal_sdk.
-
-The package intentionally exposes a minimal surface area: `QuantSignalClient`,
-the `SignalPayload` model and enums, `BaseStrategy`, and the `generate_hmac_signature`
-helper. Example/demo bots and heavy deps (CCXT usage) live under `examples/`.
-"""
-⋮----
-__all__ = [
 </file>
 
 <file path="src/quant_signal_sdk/client.py">

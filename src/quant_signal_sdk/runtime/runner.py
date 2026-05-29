@@ -31,6 +31,12 @@ class Runner:
         return self._context
 
     def run(self) -> PortfolioContext:
+        logger.info(
+            "runner started feed=%s strategy=%s dispatcher=%s",
+            self._feed.__class__.__name__,
+            self._strategy.__class__.__name__,
+            self._dispatcher.__class__.__name__,
+        )
         for event in self._feed.stream():
             signals = self._strategy.on_event(event, self._snapshot_context())
             for signal in signals:
@@ -41,12 +47,29 @@ class Runner:
                     continue
 
                 self._context = self._apply_signal(self._context, signal)
+                logger.info(
+                    "signal applied signalId=%s action=%s symbol=%s marketType=%s positions=%s",
+                    signal.signal_id,
+                    signal.action.value,
+                    signal.symbol,
+                    signal.market_type.value,
+                    len(self._context.positions),
+                )
                 if self._after_signal_applied is not None:
                     self._after_signal_applied(signal, self._context)
         return self._context
 
     def _snapshot_context(self) -> PortfolioContext:
-        return PortfolioContext(positions=self._copy_positions(self._context.positions))
+        return PortfolioContext(
+            positions=self._copy_positions(self._context.positions),
+            cash=self._context.cash,
+            open_orders=self._copy_positions(self._context.open_orders),
+            realized_pnl=self._context.realized_pnl,
+            unrealized_pnl=self._context.unrealized_pnl,
+            total_fees=self._context.total_fees,
+            equity=self._context.equity,
+            timestamp=self._context.timestamp,
+        )
 
     def _apply_signal(self, context: PortfolioContext, signal: SignalPayload) -> PortfolioContext:
         positions = self._copy_positions(context.positions)
@@ -54,10 +77,28 @@ class Runner:
 
         if signal.action in {SignalAction.CLOSE, SignalAction.CLOSE_LONG, SignalAction.CLOSE_SHORT}:
             positions.pop(position_key, None)
-            return PortfolioContext(positions=positions)
+            return PortfolioContext(
+                positions=positions,
+                cash=context.cash,
+                open_orders=self._copy_positions(context.open_orders),
+                realized_pnl=context.realized_pnl,
+                unrealized_pnl=context.unrealized_pnl,
+                total_fees=context.total_fees,
+                equity=context.equity,
+                timestamp=context.timestamp,
+            )
 
         positions[position_key] = self._build_position_state(signal)
-        return PortfolioContext(positions=positions)
+        return PortfolioContext(
+            positions=positions,
+            cash=context.cash,
+            open_orders=self._copy_positions(context.open_orders),
+            realized_pnl=context.realized_pnl,
+            unrealized_pnl=context.unrealized_pnl,
+            total_fees=context.total_fees,
+            equity=context.equity,
+            timestamp=context.timestamp,
+        )
 
     def _copy_positions(self, positions: dict[str, Any]) -> dict[str, Any]:
         return {

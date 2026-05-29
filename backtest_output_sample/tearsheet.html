@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8' />
+  <meta name='viewport' content='width=device-width, initial-scale=1' />
+  <title>Backtest Tear Sheet</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #0b1220; color: #e5e7eb; }
+    h1, h2 { margin: 0 0 12px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .metric { background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; }
+    .label { font-size: 12px; color: #9ca3af; text-transform: uppercase; }
+    .value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; margin-top: 18px; }
+    svg { width: 100%; height: auto; display: block; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border-bottom: 1px solid #1f2937; padding: 8px; text-align: left; font-size: 13px; }
+    th { color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <h1>Backtest Tear Sheet</h1>
+  <div class='grid'><div class='metric'><div class='label'>total_return</div><div class='value'>0.01</div></div><div class='metric'><div class='label'>annualized_return</div><div class='value'>0.01</div></div><div class='metric'><div class='label'>sharpe_ratio</div><div class='value'>1.116943354050715</div></div><div class='metric'><div class='label'>sortino_ratio</div><div class='value'>inf</div></div><div class='metric'><div class='label'>max_drawdown</div><div class='value'>0.09</div></div><div class='metric'><div class='label'>win_rate</div><div class='value'>1.0</div></div><div class='metric'><div class='label'>profit_factor</div><div class='value'>inf</div></div><div class='metric'><div class='label'>time_in_market</div><div class='value'>0.5</div></div><div class='metric'><div class='label'>total_trades</div><div class='value'>1</div></div><div class='metric'><div class='label'>winning_trades</div><div class='value'>1</div></div><div class='metric'><div class='label'>losing_trades</div><div class='value'>0</div></div><div class='metric'><div class='label'>gross_profit</div><div class='value'>10.0</div></div><div class='metric'><div class='label'>gross_loss</div><div class='value'>0</div></div><div class='metric'><div class='label'>final_equity</div><div class='value'>1010.0</div></div></div>
+  <div class='card'>
+    <h2>Equity Curve</h2>
+    <svg viewBox='0 0 900 220'><polyline points='20.00,38.00 450.00,200.00 880.00,20.00' fill='none' stroke='#10b981' stroke-width='2' /></svg>
+  </div>
+  <div class='card'>
+    <h2>Underwater Plot</h2>
+    <svg viewBox='0 0 900 180'><path d='M 20,160 L 20.00,20.00 L 450.00,160.00 L 880.00,20.00 L 880,160 Z' fill='#ef4444' opacity='0.15' stroke='none' /><polyline points='20.00,20.00 450.00,160.00 880.00,20.00' fill='none' stroke='#ef4444' stroke-width='2' /></svg>
+  </div>
+  <div class='card'>
+    <h2>Candles</h2>
+    <svg viewBox='0 0 900 320'><line x1='20.00' y1='260.00' x2='20.00' y2='300.00' stroke='#94a3b8' stroke-width='1' /><rect x='-66.00' y='280.00' width='172.00' height='1.00' fill='#10b981' opacity='0.8' /><line x1='450.00' y1='40.00' x2='450.00' y2='300.00' stroke='#94a3b8' stroke-width='1' /><rect x='364.00' y='80.00' width='172.00' height='200.00' fill='#10b981' opacity='0.8' /><line x1='880.00' y1='20.00' x2='880.00' y2='120.00' stroke='#94a3b8' stroke-width='1' /><rect x='794.00' y='40.00' width='172.00' height='40.00' fill='#10b981' opacity='0.8' /><circle cx='20.00' cy='280.00' r='4' fill='#10b981' /><circle cx='450.00' cy='80.00' r='4' fill='#ef4444' /></svg>
+  </div>
+  <div class='card'>
+    <h2>Closed Trades</h2>
+    <table><thead><tr><th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>PnL</th></tr></thead><tbody><tr><td>BTCUSDT</td><td>LONG</td><td>2026-05-28T09:15:00+00:00</td><td>2026-05-28T09:30:00+00:00</td><td>10.000000</td></tr></tbody></table>
+  </div>
+  <div class='card'>
+    <h2>Equity Points</h2>
+    <div style='font-size:12px;color:#9ca3af'>Points: 3</div>
+  </div>
+</body>
+</html>

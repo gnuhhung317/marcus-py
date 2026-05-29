@@ -108,6 +108,14 @@ class LiveHTTPDispatcher:
         payload = signal.model_dump(mode="json", by_alias=True, exclude_none=True)
         if "generatedTimestamp" in payload and isinstance(payload["generatedTimestamp"], str):
             payload["generatedTimestamp"] = self._normalize_local_datetime(payload["generatedTimestamp"])
+        logger.info(
+            "dispatching signal signalId=%s botId=%s symbol=%s marketType=%s via=%s",
+            signal.signal_id,
+            signal.bot_id,
+            signal.symbol,
+            signal.market_type.value,
+            "bot-key" if self._bot_api_key else "client",
+        )
         try:
             if self._bot_api_key:
                 self._client.send_payload_with_bot_key(payload, bot_api_key=self._bot_api_key)
@@ -191,6 +199,13 @@ class MockDispatcher:
         self.ledger: list[SignalPayload] = []
 
     def dispatch(self, signal: SignalPayload) -> None:
+        logger.info(
+            "capturing signal signalId=%s botId=%s symbol=%s marketType=%s",
+            signal.signal_id,
+            signal.bot_id,
+            signal.symbol,
+            signal.market_type.value,
+        )
         self.ledger.append(signal.model_copy(deep=True))
 
     def export_csv(self, file_path: str | Path) -> None:

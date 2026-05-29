@@ -18,6 +18,13 @@ class MarketEvent:
 @dataclass(frozen=True, slots=True)
 class PortfolioContext:
     positions: dict[str, Any] = field(default_factory=dict)
+    cash: float = 0.0
+    open_orders: dict[str, Any] = field(default_factory=dict)
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+    total_fees: float = 0.0
+    equity: float = 0.0
+    timestamp: datetime | None = None
 
 
 class BaseFeed(Protocol):

@@ -39,6 +39,9 @@ market-data = [
   "ccxt>=4.0,<6.0",
 ]
 
+[project.scripts]
+quant-sdk = "quant_signal_sdk.cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 

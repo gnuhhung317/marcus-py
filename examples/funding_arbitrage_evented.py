@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,10 @@ from quant_signal_sdk import (
     SignalPayload,
     Runner,
 )
+from quant_signal_sdk.models import ExecutionPolicies
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use-mock-dispatcher", action="store_true", help="Collect signals locally instead of posting them")
     parser.add_argument("--ledger-csv", default=None, help="Optional CSV path for MockDispatcher output")
     parser.add_argument("--state-json", default="funding_arb_portfolio.json", help="Local portfolio snapshot path")
+    parser.add_argument("--log-level", default=None, help="Python log level (default: env LOG_LEVEL or INFO)")
+    parser.add_argument("--max-size-percent", type=float, default=None, help="Optional max size percent for executor (0-1 or 0-100)")
+    parser.add_argument("--cancel-after-seconds", type=int, default=None, help="Optional seconds from now to cancel outstanding orders")
+    parser.add_argument("--close-after-seconds", type=int, default=None, help="Optional seconds from now to force-close positions")
     return parser
 
 
@@ -122,6 +132,48 @@ def build_runner(args: argparse.Namespace) -> tuple[Runner, object]:
         )
         dispatcher = LiveHTTPDispatcher(client, bot_api_key=args.bot_api_key)
 
+    # Build optional execution policies from CLI flags
+    policies = None
+    if args.max_size_percent is not None or args.cancel_after_seconds is not None or args.close_after_seconds is not None:
+        import time
+        now_epoch = int(time.time())
+        maxp = args.max_size_percent
+        # allow 0-100 convenience
+        if maxp is not None and maxp > 1 and maxp <= 100:
+            maxp = maxp / 100.0
+
+        cancel_ts = None
+        if args.cancel_after_seconds is not None:
+            cancel_ts = now_epoch + int(args.cancel_after_seconds)
+
+        close_ts = None
+        if args.close_after_seconds is not None:
+            close_ts = now_epoch + int(args.close_after_seconds)
+
+        policies = ExecutionPolicies(
+            max_size_percent=maxp,
+            cancel_order_after=cancel_ts,
+            close_position_after=close_ts,
+        )
+
+    # If policies provided, wrap dispatcher to inject them into emitted signals
+    if policies is not None:
+        class PoliciesInjectingDispatcher:
+            def __init__(self, base, policies):
+                self._base = base
+                self._policies = policies
+
+            def dispatch(self, signal: SignalPayload) -> None:
+                copied = signal.model_copy(deep=True)
+                copied.policies = self._policies
+                self._base.dispatch(copied)
+
+            def export_csv(self, *args, **kwargs):
+                if hasattr(self._base, "export_csv"):
+                    return self._base.export_csv(*args, **kwargs)
+
+        dispatcher = PoliciesInjectingDispatcher(dispatcher, policies)
+
     def after_signal_applied(_: SignalPayload, context: PortfolioContext) -> None:
         if args.state_json:
             dump_context_snapshot(args.state_json, context)
@@ -138,7 +190,14 @@ def build_runner(args: argparse.Namespace) -> tuple[Runner, object]:
 
 def main() -> None:
     args = build_parser().parse_args()
+    log_level_name = (args.log_level or os.getenv("LOG_LEVEL") or "INFO").upper()
+    logging.basicConfig(
+        level=getattr(logging, log_level_name, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logger.info("starting funding_arbitrage_evented bot logLevel=%s", log_level_name)
     runner, dispatcher = build_runner(args)
+    logger.info("runner initialized dispatcher=%s", dispatcher.__class__.__name__)
     runner.run()
 
     if isinstance(dispatcher, MockDispatcher):

@@ -10,6 +10,7 @@ Local executor client code has been moved to `local-executor-client` in the work
 - Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
 - High-level API client (`QuantSignalClient`) for authenticated signal submission.
 - Minimal `BaseStrategy` contract for strategy inheritance.
+- In-memory portfolio backtest runner with OHLCV replay and execution-policy enforcement.
 
 ## Quickstart
 ```python
@@ -34,6 +35,16 @@ signal = SignalPayload(
 result = client.send_signal(signal)
 print(result)
 ```
+
+## Backtest
+
+Create a `my_bot.py` file that exports a strategy class or `STRATEGY` object with `on_event(...)`, then run:
+
+```bash
+quant-sdk backtest --bot-file my_bot.py --data-csv candles.csv --initial-cash 1000
+```
+
+The backtest engine replays OHLCV candles, queues signals for the next tick, and prints a simple portfolio summary when the run completes.
 
 ## Requirements
 - Python 3.10+
