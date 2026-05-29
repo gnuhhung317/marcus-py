@@ -46,6 +46,16 @@ quant-sdk backtest --bot-file my_bot.py --data-csv candles.csv --initial-cash 10
 
 The backtest engine replays OHLCV candles, queues signals for the next tick, and prints a simple portfolio summary when the run completes.
 
+If your OHLCV data is stored as Parquet (recommended per `GUIDE_DATA.md`), point the CLI at the Parquet file or directory. Example using the dataset layout in `GUIDE_DATA.md`:
+
+```powershell
+python -m quant_signal_sdk.cli backtest --bot-file my_bot.py \
+    --data-parquet "D:\Code\Projects\self-projects\macd-overlay - Copy\data\ohlcv\BTCUSDT.parquet" \
+    --timestamp-column timestamp --initial-cash 1000 --output-dir backtest_output_parquet --export-html
+```
+
+The CLI accepts either `--data-csv` (legacy) or `--data-parquet` (preferred). When a directory is passed to `--data-parquet` the first `*.parquet` file is used.
+
 ## Requirements
 - Python 3.10+
 
