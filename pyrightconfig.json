@@ -1,0 +1,13 @@
+{
+  "typeCheckingMode": "basic",
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "examples",
+    "tests",
+    "dist",
+    "build",
+    "**/__pycache__/**"
+  ]
+}
