@@ -4,19 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-signal-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Developer SDK for validating and publishing trading signals"
-readme = "README.md"
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 authors = [
   { name = "Marcus SDK Team", email = "dev@marcus.io" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -24,6 +23,11 @@ dependencies = [
   "requests>=2.32,<3.0",
   "urllib3>=2.2,<3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/marcusio/quant-signal-sdk"
+Repository = "https://github.com/marcusio/quant-signal-sdk"
+Issues = "https://github.com/marcusio/quant-signal-sdk/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -37,6 +41,14 @@ dev = [
 market-data = [
   "pandas>=2.2,<3.0",
   "ccxt>=4.0,<6.0",
+]
+
+ml = [
+  "joblib>=1.3,<2.0",
+  "lightgbm>=4.3,<5.0",
+  "numpy>=1.26,<3.0",
+  "pandas>=2.2,<3.0",
+  "scikit-learn>=1.4,<2.0",
 ]
 
 [project.scripts]

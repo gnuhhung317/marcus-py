@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1] - 2026-06-01
+
+### Added
+- GitHub Actions trusted publishing workflow for automatic PyPI uploads on GitHub Release publish events.
+- README release instructions for configuring PyPI trusted publisher setup.
+
+## [Unreleased]
+
 ## [0.1.0] - 2026-04-24
 
 ### Added
