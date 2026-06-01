@@ -30,13 +30,16 @@ class PortfolioContext:
 class BaseFeed(Protocol):
     def stream(self) -> Iterator[MarketEvent]:
         """Yield ordered market events with no callbacks."""
+        ...
 
 
 class BaseDispatcher(Protocol):
     def dispatch(self, signal: SignalPayload) -> None:
         """Execute side effects for a single signal."""
+        ...
 
 
 class BaseStrategy(Protocol):
     def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[SignalPayload]:
         """Return signals for the current event and portfolio snapshot."""
+        ...

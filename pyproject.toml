@@ -24,6 +24,7 @@ dependencies = [
   "urllib3>=2.2,<3.0",
   "pandas>=1.5,<2.0",
   "numpy>=1.26,<1.27",
+  "ccxt>=3.0,<4.0",
 ]
 
 [project.urls]
