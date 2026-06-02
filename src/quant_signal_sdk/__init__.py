@@ -21,6 +21,7 @@ from .data_provider import DataProvider, CcxtDataProvider
 from .feature_engineer import FeatureEngineer
 from .interfaces import BaseDispatcher, BaseFeed, MarketEvent, PortfolioContext, Signal
 from .runner import Runner
+from .runtime.telemetry import BotTelemetryClient, TelemetryConfig
 from .adapters import BaseTrigger, CronTrigger, DataFrameFeed, IntervalTrigger, LiveHTTPDispatcher, LiveRESTFeed, MockDispatcher, ParquetReplayFeed, ScheduledRESTFeed
 from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, OhlcvReplayFeed, PortfolioBacktestRunner
 from .core_strategy import FundingArbitrageConfig, FundingArbitrageStrategy
@@ -49,6 +50,8 @@ __all__ = [
     "PortfolioContext",
     "Signal",
     "Runner",
+    "BotTelemetryClient",
+    "TelemetryConfig",
     "BacktestConfig",
     "BacktestFill",
     "BacktestOrder",

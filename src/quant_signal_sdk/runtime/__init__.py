@@ -2,6 +2,7 @@ from .adapters import BaseTrigger, CronTrigger, DataFrameFeed, IntervalTrigger, 
 from .backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, OhlcvReplayFeed, PortfolioBacktestRunner
 from .interfaces import BaseDispatcher, BaseFeed, BaseStrategy, MarketEvent, PortfolioContext, Signal
 from .runner import Runner
+from .telemetry import BotTelemetryClient, TelemetryConfig
 
 __all__ = [
     "BaseTrigger",
@@ -25,5 +26,7 @@ __all__ = [
     "PortfolioBacktestRunner",
     "ScheduledRESTFeed",
     "Runner",
+    "BotTelemetryClient",
+    "TelemetryConfig",
     "Signal",
 ]
