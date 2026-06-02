@@ -1,0 +1,2 @@
+[console_scripts]
+quant-sdk = quant_signal_sdk.cli:main

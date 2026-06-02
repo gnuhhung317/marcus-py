@@ -3,11 +3,13 @@ Name: quant-signal-sdk
 Version: 0.1.0
 Summary: Developer SDK for validating and publishing trading signals
 Author-email: Marcus SDK Team <dev@marcus.io>
-License: MIT
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/marcusio/quant-signal-sdk
+Project-URL: Repository, https://github.com/marcusio/quant-signal-sdk
+Project-URL: Issues, https://github.com/marcusio/quant-signal-sdk/issues
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
-Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
@@ -22,7 +24,14 @@ Requires-Dist: pyright>=1.1; extra == "dev"
 Requires-Dist: build>=1.0; extra == "dev"
 Requires-Dist: twine>=4.0; extra == "dev"
 Provides-Extra: market-data
+Requires-Dist: pandas<3.0,>=2.2; extra == "market-data"
 Requires-Dist: ccxt<6.0,>=4.0; extra == "market-data"
+Provides-Extra: ml
+Requires-Dist: joblib<2.0,>=1.3; extra == "ml"
+Requires-Dist: lightgbm<5.0,>=4.3; extra == "ml"
+Requires-Dist: numpy<3.0,>=1.26; extra == "ml"
+Requires-Dist: pandas<3.0,>=2.2; extra == "ml"
+Requires-Dist: scikit-learn<2.0,>=1.4; extra == "ml"
 Dynamic: license-file
 
 ﻿# Quant Signal SDK
@@ -37,6 +46,7 @@ Local executor client code has been moved to `local-executor-client` in the work
 - Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
 - High-level API client (`QuantSignalClient`) for authenticated signal submission.
 - Minimal `BaseStrategy` contract for strategy inheritance.
+- In-memory portfolio backtest runner with OHLCV replay and execution-policy enforcement.
 
 ## Quickstart
 ```python
@@ -61,6 +71,26 @@ signal = SignalPayload(
 result = client.send_signal(signal)
 print(result)
 ```
+
+## Backtest
+
+Create a `my_bot.py` file that exports a strategy class or `STRATEGY` object with `on_event(...)`, then run:
+
+```bash
+quant-sdk backtest --bot-file my_bot.py --data-csv candles.csv --initial-cash 1000
+```
+
+The backtest engine replays OHLCV candles, queues signals for the next tick, and prints a simple portfolio summary when the run completes.
+
+If your OHLCV data is stored as Parquet (recommended per `GUIDE_DATA.md`), point the CLI at the Parquet file or directory. Example using the dataset layout in `GUIDE_DATA.md`:
+
+```powershell
+python -m quant_signal_sdk.cli backtest --bot-file my_bot.py \
+    --data-parquet "D:\Code\Projects\self-projects\macd-overlay - Copy\data\ohlcv\BTCUSDT.parquet" \
+    --timestamp-column timestamp --initial-cash 1000 --output-dir backtest_output_parquet --export-html
+```
+
+The CLI accepts either `--data-csv` (legacy) or `--data-parquet` (preferred). When a directory is passed to `--data-parquet` the first `*.parquet` file is used.
 
 ## Requirements
 - Python 3.10+
@@ -90,10 +120,38 @@ Install both dev and market-data extras together:
 pip install -e .[dev,market-data]
 ```
 
+After publishing to PyPI, users can install the released package with:
+
+```bash
+pip install quant-signal-sdk
+```
+
 ## Tests
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+## Release
+Build the distribution and validate the artifacts before upload:
+
+```bash
+python -m build --sdist --wheel
+python -m twine check dist/*
+python -m twine upload dist/*
+```
+
+## Example: register -> signer secret behavior
+
+When registering a bot via the example `examples/sample_bot.py`, the backend returns
+both an `apiKey` (runtime API key) and a `rawSecret` (signer secret). The example
+attaches the returned `rawSecret` to the `QuantSignalClient` as the `signer_secret`
+when the user did not already supply one. This ensures subsequent signal POSTs
+include the required `X-Timestamp` and `X-Signature` headers that the server
+validates.
+
+If you prefer to manage signing secrets yourself, pass `--bot-signer-secret` to
+the example and the returned `rawSecret` will not overwrite it.
+
 
 ## Build
 ```bash

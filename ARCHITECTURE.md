@@ -1,48 +1,67 @@
-# Architecture Documentation: bot-framework-python
+# ARCHITECTURE.md - Marcus Trading Bot Framework
 
-## 1. Overview
-The `bot-framework-python` SDK is a lightweight Python library designed to facilitate communication between trading bots and a backend signaling API. It focuses on three core pillars: **Data Standardization** (Models), **Secure Authentication** (Signing), and **Reliable Delivery** (Network).
+## 1. Mental Model: The "Plug-and-Play" Architecture
+This repository is designed as a **Hexagonal Architecture** (Ports and Adapters) for algorithmic trading. The core logic (Strategy) is isolated from external concerns (Data Feeds and Signal Delivery).
 
-## 2. Core Components
+### Core Domains
+- **Signal Engine**: Standardizes trading intent via `SignalPayload`.
+- **Runtime Engine**: Manages state (`PortfolioContext`) and orchestration via `Runner`.
+- **Connectors**: External interfaces for REST APIs (`QuantSignalClient`) and Exchanges (`CCXTClient`).
 
-### 2.1 QuantSignalClient (`src/quant_signal_sdk/client.py`)
-The primary entry point for the SDK. It orchestrates the process of:
-- Registering bots with the backend.
-- Preparing signals for transmission.
-- Coordinating with the signing and network modules to securely send data.
+---
 
-### 2.2 Models (`src/quant_signal_sdk/models.py`)
-Utilizes `pydantic` for strict data validation.
-- **`SignalPayload`**: Ensures that every signal sent (Symbol, Side, Action, etc.) adheres to the required backend contract.
-- **Enums**: Defines standardized values for `SignalAction`, `SignalSide`, and `SignalType`.
+## 2. Lifecycle & Core Flow: The Journey of a Signal
+The most important entity in this system is the **`SignalPayload`**. Its lifecycle follows a strict path to ensure reliability:
 
-### 2.3 Signing (`src/quant_signal_sdk/signing.py`)
-Handles HMAC-SHA256 signature generation.
-- **Canonicalization**: Ensures JSON payloads are consistently formatted before signing to prevent verification failures due to whitespace or key ordering.
-- **Security**: Protects signal integrity and authenticates the bot to the backend.
+1.  **Ingestion**: `BaseFeed` (e.g., `OhlcvReplayFeed`) streams `MarketEvent` objects.
+2.  **Transformation (Decision)**: `BaseStrategy.on_event` receives the event and a snapshot of the `PortfolioContext`. It emits one or more `SignalPayload` objects.
+3.  **Boundary Guard (Validation)**: 
+    - `SignalTranslator` validates timeframe integrity (checks for data gaps).
+    - `RiskManager` (optional) calculates SL/TP and validates position sizing.
+4.  **Egress (Dispatch)**: 
+    - **Backtest**: Handled by `PortfolioBacktestRunner` which matches orders against subsequent candles.
+    - **Live**: `QuantSignalClient` signs the payload (HMAC-SHA256) and sends it via REST to the backend.
 
-### 2.4 Network (`src/quant_signal_sdk/network.py`)
-A robust HTTP client wrapper using `requests`.
-- **Retry Logic**: Implements intelligent retry mechanisms to handle transient network issues.
-- **Consistency**: Provides a unified interface for all HTTP communication within the SDK.
+---
 
-### 2.5 Strategy (`src/quant_signal_sdk/strategy.py`)
-Provides the `BaseStrategy` abstract class, allowing developers to implement custom trading logic while leveraging the SDK's built-in signal delivery capabilities.
+## 3. In/Out Boundaries
+- **Input Protocols**:
+    - **Live**: Typically WebSocket or REST (via `BaseFeed` implementations).
+    - **Backtest**: CSV/DataFrame via `OhlcvReplayFeed`.
+- **Output Contracts**:
+    - **REST API**: JSON-over-HTTP. Authenticated via `X-Bot-Api-Key` and `X-Signature` (HMAC).
+    - **Schema**: Strictly enforced by Pydantic models in `models.py`.
 
-### 2.6 CCXT Integration (`src/quant_signal_sdk/ccxt_client.py`)
-An optional module providing pre-integrated support for the `ccxt` library, enabling bots to easily fetch market data from various exchanges.
+---
 
-## 3. Main Execution Flow
+## 4. Architectural Highlights (The "Aha" Moments)
+- **Immutable State Snapshots**: The `Runner` creates a snapshot of `PortfolioContext` before passing it to the strategy. This prevents a strategy from accidentally mutating the global state mid-calculation.
+- **Contract-Driven Development**: The system uses `tests/fixtures/contracts/` to ensure the Python models always match the backend's expectations.
+- **Timeframe Safety**: The `SignalTranslator` will **abort** signal generation if it detects data gaps, preventing "ghost signals" based on stale data.
 
-1.  **Initialization**: The bot initializes `QuantSignalClient` with its API Key and Secret.
-2.  **Data Acquisition**: The bot (potentially using `CCXTClient`) fetches market data (OHLCV).
-3.  **Signal Generation**: A `BaseStrategy` implementation processes the market data and produces a `SignalPayload`.
-4.  **Validation**: The `SignalPayload` is validated by Pydantic.
-5.  **Signing**: `QuantSignalClient` passes the payload to the `Signing` module, which generates a timestamped HMAC signature.
-6.  **Transmission**: The signed payload is passed to the `NetworkClient`, which performs an authenticated POST request to the Backend API.
+---
 
-## 4. Engineering Standards & Insights
-- **Type Safety**: Heavy use of type hints and Pydantic models.
-- **Minimal Dependencies**: The core SDK is lightweight, with `ccxt` as an optional "extra".
-- **Extensibility**: Designed with inheritance in mind (`BaseStrategy`, `NetworkClient`) to allow for custom overrides.
-- **Contract Driven**: Directly tested against backend contract fixtures (`tests/fixtures/contracts/`) to ensure ongoing compatibility.
+## 5. Critique & Optimization (The Reality Check)
+
+### Current Bottlenecks
+- **Synchronous I/O**: The `Runner` is synchronous. If the `QuantSignalClient` takes 500ms to send a signal over the network, the entire bot is blocked and might miss subsequent `MarketEvent` ticks.
+    - *Optimization*: Move to `asyncio` for the `Runner` and `NetworkClient`.
+- **State Persistence**: The `PortfolioContext` is currently in-memory. If the process crashes, the bot "forgets" its positions unless the strategy implements its own persistence (e.g., SQLite or Redis).
+    - *Optimization*: Implement a `StateStore` interface for `Runner` to persist context after every signal.
+
+### Coupling
+- **Network Library**: The `NetworkClient` is tightly coupled to the `requests` library. 
+    - *Status*: Acceptable for now, but a protocol-based abstraction is already in place to allow swapping for `httpx` or `aiohttp` in the future.
+- **CCXT Dependency**: CCXT is handled as an optional "extra", which is a good design choice to keep the core SDK lightweight.
+
+---
+
+## 6. Module Responsibility Map
+| Module | Responsibility |
+| :--- | :--- |
+| `models.py` | Defines the "Contract" (Schemas & Enums). |
+| `translator.py` | Data integrity gatekeeper and payload serializer. |
+| `runner.py` | The main loop orchestrating Feed -> Strategy -> Dispatcher. |
+| `backtest.py` | High-fidelity local exchange simulation. |
+| `client.py` | Secure network communication (Signing & POST). |
+| `ccxt_client.py` | Optional market data adapter. |

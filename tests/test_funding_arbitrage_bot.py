@@ -84,9 +84,9 @@ class TestFundingArbitrageBot(unittest.TestCase):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-    @patch("quant_signal_sdk.client.QuantSignalClient.send_payload")
-    def test_dispatch_arbitrage_orders_sends_spot_and_future(self, mock_send_payload: MagicMock) -> None:
-        mock_send_payload.return_value = {"status": "success"}
+    @patch("quant_signal_sdk.client.QuantSignalClient.send_signal")
+    def test_dispatch_arbitrage_orders_sends_spot_and_future(self, mock_send_signal: MagicMock) -> None:
+        mock_send_signal.return_value = {"status": "success"}
 
         client = QuantSignalClient(base_url="http://localhost:8080", api_key="bot_key", default_bot_id="my_bot")
         dispatch_arbitrage_orders(
@@ -98,27 +98,42 @@ class TestFundingArbitrageBot(unittest.TestCase):
             margin_mode="ISOLATED",
         )
 
-        # Should have sent 2 payloads: 1 SPOT, 1 FUTURE
-        self.assertEqual(mock_send_payload.call_count, 2)
-        
-        # Verify call arguments
-        calls = mock_send_payload.call_args_list
-        spot_payload = calls[0][0][0]
-        future_payload = calls[1][0][0]
+        # Should have sent 2 structured signals: 1 SPOT, 1 FUTURE
+        self.assertEqual(mock_send_signal.call_count, 2)
 
-        # Verify Spot leg details
-        self.assertEqual(spot_payload["action"], SignalAction.OPEN_LONG.value)
-        self.assertEqual(spot_payload["symbol"], "BTCUSDT")
-        self.assertEqual(spot_payload["marketType"], MarketType.SPOT.value)
-        self.assertEqual(spot_payload["amount"], 1.5)
+        calls = mock_send_signal.call_args_list
+        spot_signal = calls[0][0][0]
+        future_signal = calls[1][0][0]
 
-        # Verify Futures leg details
-        self.assertEqual(future_payload["action"], SignalAction.OPEN_SHORT.value)
-        self.assertEqual(future_payload["symbol"], "BTCUSDT")
-        self.assertEqual(future_payload["marketType"], MarketType.FUTURE.value)
-        self.assertEqual(future_payload["amount"], 1.5)
-        self.assertEqual(future_payload["leverage"], 3)
-        self.assertEqual(future_payload["marginMode"], "ISOLATED")
+        # Spot signal assertions
+        # It may be a SignalPayload object — inspect attributes if present
+        if hasattr(spot_signal, "action"):
+            self.assertEqual(spot_signal.action.value, SignalAction.OPEN_LONG.value)
+            self.assertEqual(spot_signal.symbol, "BTCUSDT")
+            self.assertEqual(spot_signal.market_type.value, MarketType.SPOT.value)
+            self.assertEqual(spot_signal.amount, 1.5)
+        else:
+            # fallback to dict representation
+            self.assertEqual(spot_signal["action"], SignalAction.OPEN_LONG.value)
+            self.assertEqual(spot_signal["symbol"], "BTCUSDT")
+            self.assertEqual(spot_signal["marketType"], MarketType.SPOT.value)
+            self.assertEqual(spot_signal["amount"], 1.5)
+
+        # Futures signal assertions
+        if hasattr(future_signal, "action"):
+            self.assertEqual(future_signal.action.value, SignalAction.OPEN_SHORT.value)
+            self.assertEqual(future_signal.symbol, "BTCUSDT")
+            self.assertEqual(future_signal.market_type.value, MarketType.FUTURE.value)
+            self.assertEqual(future_signal.amount, 1.5)
+            self.assertEqual(future_signal.leverage, 3)
+            self.assertEqual(future_signal.margin_mode.value, "ISOLATED")
+        else:
+            self.assertEqual(future_signal["action"], SignalAction.OPEN_SHORT.value)
+            self.assertEqual(future_signal["symbol"], "BTCUSDT")
+            self.assertEqual(future_signal["marketType"], MarketType.FUTURE.value)
+            self.assertEqual(future_signal["amount"], 1.5)
+            self.assertEqual(future_signal["leverage"], 3)
+            self.assertEqual(future_signal["marginMode"], "ISOLATED")
 
     def test_fetch_arbitrage_candidates(self) -> None:
         mock_exchange = MagicMock()

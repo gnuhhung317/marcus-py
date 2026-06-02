@@ -1,0 +1,19 @@
+{
+  "total_return": 0.06806506674892734,
+  "annualized_return": 0.06806506674892734,
+  "sharpe_ratio": 0.07052722203439969,
+  "sortino_ratio": 0.11163128407698411,
+  "max_drawdown": 0.11584995424966778,
+  "win_rate": 0.4948559670781893,
+  "profit_factor": 0.982668895157779,
+  "time_in_market": 16.105679469821137,
+  "total_trades": 972,
+  "winning_trades": 481,
+  "losing_trades": 491,
+  "gross_profit": 3341.7513557790076,
+  "gross_loss": 3400.6890543151367,
+  "final_equity": 10680.650667489273,
+  "rebalance_events": 415,
+  "coin_swaps": 943,
+  "unique_symbols_traded": 10
+}

@@ -84,10 +84,26 @@ Install both dev and market-data extras together:
 pip install -e .[dev,market-data]
 ```
 
+After publishing to PyPI, users can install the released package with:
+
+```bash
+pip install quant-signal-sdk
+```
+
 ## Tests
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+## Release
+Build the distribution and validate the artifacts before upload:
+
+```bash
+python -m build --sdist --wheel
+python -m twine check dist/*
+```
+
+If you use GitHub Actions trusted publishing, the workflow in `.github/workflows/publish-pypi.yml` publishes automatically when you create a GitHub Release. Configure the PyPI trusted publisher once for this repository, then stop using API tokens for uploads.
 
 ## Example: register -> signer secret behavior
 
