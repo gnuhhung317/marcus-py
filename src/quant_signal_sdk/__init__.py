@@ -21,7 +21,10 @@ from .data_provider import DataProvider, CcxtDataProvider
 from .feature_engineer import FeatureEngineer
 from .interfaces import BaseDispatcher, BaseFeed, MarketEvent, PortfolioContext, Signal
 from .runner import Runner
-from .runtime.telemetry import BotTelemetryClient, TelemetryConfig
+from .runtime.backtest_upload import BacktestUploadClient, BacktestUploadConfig
+from .runtime.dry_run import BotDryRunClient, DryRunSyncClient, DryRunSyncConfig
+from .runtime.sync import DryRunStateTracker, FileSyncer, HttpDryRunSyncer, NoopSyncer, StateSyncer, WebSocketDryRunSyncer, WebSocketTransport
+from .runtime.telemetry import BotTelemetryClient, TelemetryClient, TelemetryConfig
 from .adapters import BaseTrigger, CronTrigger, DataFrameFeed, IntervalTrigger, LiveHTTPDispatcher, LiveRESTFeed, MockDispatcher, ParquetReplayFeed, ScheduledRESTFeed
 from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, OhlcvReplayFeed, PortfolioBacktestRunner
 from .core_strategy import FundingArbitrageConfig, FundingArbitrageStrategy
@@ -50,7 +53,20 @@ __all__ = [
     "PortfolioContext",
     "Signal",
     "Runner",
+    "BacktestUploadClient",
+    "BacktestUploadConfig",
     "BotTelemetryClient",
+    "BotDryRunClient",
+    "DryRunSyncClient",
+    "DryRunSyncConfig",
+    "DryRunStateTracker",
+    "FileSyncer",
+    "HttpDryRunSyncer",
+    "NoopSyncer",
+    "StateSyncer",
+    "WebSocketDryRunSyncer",
+    "WebSocketTransport",
+    "TelemetryClient",
     "TelemetryConfig",
     "BacktestConfig",
     "BacktestFill",

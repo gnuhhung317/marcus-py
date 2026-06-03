@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Added
+- `BacktestUploadClient` support for uploading `BacktestReport` batches to `POST /api/v1/bots/{botId}/backtest-results`.
+- Pluggable `StateSyncer` implementations for live dry-run sync, including `HttpDryRunSyncer`, `WebSocketDryRunSyncer`, and `FileSyncer`.
+- Dedicated `TelemetryClient` for operational metrics, separate from dry-run PnL/state sync.
+
+### Changed
+- `Runner` now delegates dry-run persistence and sync through the state sync layer instead of owning transport logic directly.
+- SDK lifecycle docs now describe the full flow as historical backtest -> live dry-run -> operational telemetry.
+
 ## [0.1.0] - 2026-04-24
 
 ### Added

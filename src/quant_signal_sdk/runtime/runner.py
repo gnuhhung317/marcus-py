@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
 from ..models import SignalAction, SignalPayload, SignalStatus
 from .interfaces import BaseDispatcher, BaseFeed, BaseStrategy, PortfolioContext
-from .telemetry import BotTelemetryClient, TelemetryConfig
+from .sync import StateSyncer
 
 
 logger = logging.getLogger(__name__)
@@ -22,9 +21,7 @@ class Runner:
         dispatcher: BaseDispatcher,
         initial_context: PortfolioContext | None = None,
         after_signal_applied: Callable[[SignalPayload, PortfolioContext], None] | None = None,
-        telemetry_config: TelemetryConfig | None = None,
-        telemetry_client: BotTelemetryClient | None = None,
-        telemetry_sync_interval: float | None = None,
+        state_syncer: StateSyncer | None = None,
     ) -> None:
         self._feed = feed
         self._strategy = strategy
@@ -32,25 +29,14 @@ class Runner:
         self._explicit_initial_context = initial_context is not None
         self._context = initial_context or PortfolioContext()
         self._after_signal_applied = after_signal_applied
-        self._telemetry_config = telemetry_config
-        if telemetry_config and telemetry_sync_interval is not None:
-            self._telemetry_config = TelemetryConfig(
-                base_url=telemetry_config.base_url,
-                bot_id=telemetry_config.bot_id,
-                api_key=telemetry_config.api_key,
-                signer_secret=telemetry_config.signer_secret,
-                sync_interval_seconds=telemetry_sync_interval,
-                timeout_seconds=telemetry_config.timeout_seconds,
-            )
-        self._telemetry_client = telemetry_client or (BotTelemetryClient(self._telemetry_config) if self._telemetry_config else None)
-        self._last_telemetry_sync_monotonic = 0.0
+        self._state_syncer = state_syncer
 
     @property
     def context(self) -> PortfolioContext:
         return self._context
 
     def run(self) -> PortfolioContext:
-        self._recover_telemetry_context()
+        self._recover_context()
         logger.info(
             "runner started feed=%s strategy=%s dispatcher=%s",
             self._feed.__class__.__name__,
@@ -77,51 +63,26 @@ class Runner:
                 )
                 if self._after_signal_applied is not None:
                     self._after_signal_applied(signal, self._context)
-                self._sync_telemetry_if_due()
-        self._sync_telemetry(force=True)
+                if self._state_syncer is not None:
+                    self._state_syncer.sync(self._context)
+        if self._state_syncer is not None:
+            self._state_syncer.sync(self._context, force=True)
         return self._context
 
-    def _recover_telemetry_context(self) -> None:
-        if self._telemetry_client is None or self._explicit_initial_context:
+    def _recover_context(self) -> None:
+        if self._explicit_initial_context:
+            return
+        recover_context = getattr(self._state_syncer, "recover_context", None)
+        if not callable(recover_context):
             return
         try:
-            latest = self._telemetry_client.fetch_latest()
+            latest = recover_context()
         except Exception:
-            logger.exception("Telemetry recovery failed")
+            logger.exception("Dry-run recovery failed")
             return
-        if not latest:
+        if latest is None:
             return
-        self._context = PortfolioContext(
-            positions=self._copy_positions(self._context.positions),
-            cash=self._context.cash,
-            open_orders=self._copy_positions(self._context.open_orders),
-            realized_pnl=float(latest.get("realizedPnl") or latest.get("realized_pnl") or 0.0),
-            unrealized_pnl=float(latest.get("unrealizedPnl") or latest.get("unrealized_pnl") or 0.0),
-            total_fees=self._context.total_fees,
-            equity=float(latest.get("equity") or 0.0),
-            timestamp=self._parse_timestamp(latest.get("timestamp")),
-        )
-
-    def _sync_telemetry_if_due(self) -> None:
-        if self._telemetry_config is None:
-            return
-        now = time.monotonic()
-        if now - self._last_telemetry_sync_monotonic < self._telemetry_config.sync_interval_seconds:
-            return
-        self._sync_telemetry(force=True)
-
-    def _sync_telemetry(self, *, force: bool = False) -> None:
-        if self._telemetry_client is None:
-            return
-        if not force and self._telemetry_config is not None:
-            now = time.monotonic()
-            if now - self._last_telemetry_sync_monotonic < self._telemetry_config.sync_interval_seconds:
-                return
-        try:
-            self._telemetry_client.push_context(self._context)
-            self._last_telemetry_sync_monotonic = time.monotonic()
-        except Exception:
-            logger.exception("Telemetry sync failed")
+        self._context = latest
 
     def _parse_timestamp(self, value: Any) -> datetime | None:
         if not value:
@@ -162,7 +123,7 @@ class Runner:
                 unrealized_pnl=context.unrealized_pnl,
                 total_fees=context.total_fees,
                 equity=context.equity,
-                timestamp=context.timestamp,
+                timestamp=signal.generated_timestamp,
             )
 
         positions[position_key] = self._build_position_state(signal)
@@ -174,7 +135,7 @@ class Runner:
             unrealized_pnl=context.unrealized_pnl,
             total_fees=context.total_fees,
             equity=context.equity,
-            timestamp=context.timestamp,
+            timestamp=signal.generated_timestamp,
         )
 
     def _copy_positions(self, positions: dict[str, Any]) -> dict[str, Any]:
@@ -189,13 +150,18 @@ class Runner:
     def _build_position_state(self, signal: SignalPayload) -> dict[str, Any]:
         side = "LONG" if signal.action == SignalAction.OPEN_LONG else "SHORT"
         return {
+            "position_id": self._position_key(signal),
             "symbol": signal.symbol,
             "market_type": signal.market_type.value,
             "order_type": signal.order_type.value,
             "action": signal.action.value,
             "side": side,
             "amount": float(signal.amount or 0.0),
-            "entry": signal.entry,
+            "entry": float(signal.entry or 0.0),
+            "current_price": float(signal.entry or 0.0),
+            "unrealized_pnl": 0.0,
+            "opened_at": signal.generated_timestamp,
+            "source_signal_id": signal.signal_id,
             "status": signal.status.value if signal.status else SignalStatus.RECEIVED.value,
             "generated_timestamp": signal.generated_timestamp,
             "signal": signal.model_copy(deep=True),

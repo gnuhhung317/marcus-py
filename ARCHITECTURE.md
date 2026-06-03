@@ -22,6 +22,16 @@ The most important entity in this system is the **`SignalPayload`**. Its lifecyc
     - **Backtest**: Handled by `PortfolioBacktestRunner` which matches orders against subsequent candles.
     - **Live**: `QuantSignalClient` signs the payload (HMAC-SHA256) and sends it via REST to the backend.
 
+## 2.5 Dual Lifecycle Publishing
+
+The SDK now treats bot history as two separate pipelines:
+
+1.  **Historical backtest**: `PortfolioBacktestRunner` produces a `BacktestReport`, and `BacktestUploadClient` can upload it to `/api/v1/bots/{botId}/backtest-results`.
+2.  **Live dry-run**: `Runner` delegates state persistence and sync to a pluggable `StateSyncer` implementation. `HttpDryRunSyncer` is the default REST transport, but `WebSocketDryRunSyncer` and `FileSyncer` are also available.
+3.  **Operational telemetry**: `TelemetryClient` is reserved for non-PnL metrics such as latency, CPU, and heartbeats.
+
+This split keeps transport concerns out of the core `Runner` loop and lets the backend merge historical and out-of-sample data later.
+
 ---
 
 ## 3. In/Out Boundaries
@@ -44,10 +54,10 @@ The most important entity in this system is the **`SignalPayload`**. Its lifecyc
 ## 5. Critique & Optimization (The Reality Check)
 
 ### Current Bottlenecks
-- **Synchronous I/O**: The `Runner` is synchronous. If the `QuantSignalClient` takes 500ms to send a signal over the network, the entire bot is blocked and might miss subsequent `MarketEvent` ticks.
-    - *Optimization*: Move to `asyncio` for the `Runner` and `NetworkClient`.
+- **Synchronous I/O**: The `Runner` is still synchronous, but network sync is no longer embedded in the core loop. If a sync transport is slow, it can be swapped independently through `StateSyncer`.
+    - *Optimization*: Move to `asyncio` for the `Runner` and feed/strategy loop if the execution model ever needs higher throughput.
 - **State Persistence**: The `PortfolioContext` is currently in-memory. If the process crashes, the bot "forgets" its positions unless the strategy implements its own persistence (e.g., SQLite or Redis).
-    - *Optimization*: Implement a `StateStore` interface for `Runner` to persist context after every signal.
+    - *Status*: Dry-run persistence now lives outside `Runner` via `DryRunStateTracker`; a more distributed store can be introduced without changing the loop itself.
 
 ### Coupling
 - **Network Library**: The `NetworkClient` is tightly coupled to the `requests` library. 
@@ -63,5 +73,8 @@ The most important entity in this system is the **`SignalPayload`**. Its lifecyc
 | `translator.py` | Data integrity gatekeeper and payload serializer. |
 | `runner.py` | The main loop orchestrating Feed -> Strategy -> Dispatcher. |
 | `backtest.py` | High-fidelity local exchange simulation. |
+| `backtest_upload.py` | Batch upload of `BacktestReport` to backend historical storage. |
+| `sync.py` | Dry-run state tracking and pluggable sync transports. |
+| `telemetry.py` | Operational telemetry client, separate from dry-run PnL/state sync. |
 | `client.py` | Secure network communication (Signing & POST). |
 | `ccxt_client.py` | Optional market data adapter. |

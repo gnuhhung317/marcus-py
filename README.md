@@ -11,6 +11,9 @@ Local executor client code has been moved to `local-executor-client` in the work
 - High-level API client (`QuantSignalClient`) for authenticated signal submission.
 - Minimal `BaseStrategy` contract for strategy inheritance.
 - In-memory portfolio backtest runner with OHLCV replay and execution-policy enforcement.
+- Backtest publishing client for uploading completed `BacktestReport` objects to the backend.
+- Pluggable dry-run sync helpers (`StateSyncer`, `HttpDryRunSyncer`, `WebSocketDryRunSyncer`, `FileSyncer`).
+- Dedicated operational telemetry client (`TelemetryClient`) separate from dry-run PnL/state sync.
 
 ## Quickstart
 ```python
@@ -55,6 +58,27 @@ python -m quant_signal_sdk.cli backtest --bot-file my_bot.py \
 ```
 
 The CLI accepts either `--data-csv` (legacy) or `--data-parquet` (preferred). When a directory is passed to `--data-parquet` the first `*.parquet` file is used.
+
+### Publish backtest results
+
+The backtest CLI still exports local CSV/HTML/JSON artifacts, but it can also upload the completed report to the backend as a historical run:
+
+```bash
+quant-sdk backtest --bot-file my_bot.py --data-csv candles.csv --initial-cash 1000 \
+  --upload-backtest \
+  --backend-url https://api.example.com \
+  --bot-id bot_123 \
+  --api-key <bot-api-key> \
+  --signer-secret <optional-signing-secret>
+```
+
+The upload is batch-only. Equity history and closed trades are stored as `HISTORICAL`, while live dry-run sync continues through `/api/v1/bots/{botId}/dry-run/sync`.
+
+### Dry-run and telemetry
+
+For live paper trading, build a `StateSyncer` around `DryRunSyncClient` and `DryRunStateTracker`. This keeps the state sync loop outside `Runner` so the transport can be REST, WebSocket, or file-based without changing core strategy execution.
+
+Operational telemetry is separate. Use `TelemetryClient` for metrics like CPU, latency, and heartbeat-style signals instead of reusing the dry-run transport.
 
 ## Requirements
 - Python 3.10+

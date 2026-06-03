@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 import requests
 
 from ..signing import generate_hmac_signature
-from .interfaces import PortfolioContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,43 +16,26 @@ class TelemetryConfig:
     bot_id: str
     api_key: str
     signer_secret: str | None = None
-    sync_interval_seconds: float = 3600.0
     timeout_seconds: float = 10.0
 
 
-class BotTelemetryClient:
+class TelemetryClient:
+    """Transport for operational telemetry, separate from dry-run PnL state."""
+
     def __init__(self, config: TelemetryConfig, session: requests.Session | None = None) -> None:
         self._config = config
         self._session = session or requests.Session()
 
-    def fetch_latest(self) -> dict[str, Any] | None:
-        response = self._session.get(
-            self._url("/telemetry/latest"),
-            headers=self._headers({}),
-            timeout=self._config.timeout_seconds,
-        )
-        if response.status_code == 204:
-            return None
-        response.raise_for_status()
-        return response.json()
-
-    def push_context(self, context: PortfolioContext) -> dict[str, Any]:
-        payload = {
-            "timestamp": self._format_timestamp(context.timestamp),
-            "equity": context.equity,
-            "realizedPnl": context.realized_pnl,
-            "unrealizedPnl": context.unrealized_pnl,
-        }
+    def push_telemetry(self, metrics: dict[str, Any]) -> dict[str, Any]:
+        payload = {"metrics": metrics}
         response = self._session.post(
             self._url("/telemetry"),
             headers=self._headers(payload),
-            json=payload,
+            data=self._body(payload),
             timeout=self._config.timeout_seconds,
         )
         response.raise_for_status()
-        if not response.content:
-            return {}
-        return response.json()
+        return response.json() if response.content else {}
 
     def _url(self, suffix: str) -> str:
         return f"{self._config.base_url.rstrip('/')}/api/v1/bots/{self._config.bot_id}{suffix}"
@@ -69,8 +51,10 @@ class BotTelemetryClient:
             headers["X-Signature"] = generate_hmac_signature(payload, self._config.signer_secret, timestamp=timestamp)
         return headers
 
-    def _format_timestamp(self, timestamp: datetime | None) -> str:
-        value = timestamp or datetime.now(timezone.utc)
-        if value.tzinfo is not None:
-            value = value.astimezone(timezone.utc).replace(tzinfo=None)
-        return value.isoformat()
+    def _body(self, payload: dict[str, Any]) -> str:
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+BotTelemetryClient = TelemetryClient
+
+__all__ = ["TelemetryConfig", "TelemetryClient", "BotTelemetryClient"]

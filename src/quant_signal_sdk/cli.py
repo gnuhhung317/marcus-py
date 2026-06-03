@@ -17,6 +17,7 @@ import pandas as pd
 from .data_loader import BundleLoader
 from .runtime.adapters import DataFrameFeed
 from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, PortfolioBacktestRunner
+from .runtime.backtest_upload import BacktestUploadClient, BacktestUploadConfig
 from .runtime.interfaces import BaseStrategy
 
 
@@ -42,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--slippage", type=float, default=0.0, help="Slippage rate")
     backtest.add_argument("--output-dir", default="backtest_output", help="Directory for CSV/HTML exports")
     backtest.add_argument("--export-html", action="store_true", help="Write a static HTML tear sheet")
+    backtest.add_argument("--upload-backtest", action="store_true", help="Upload the completed backtest report to Marcus backend")
+    backtest.add_argument("--backend-url", default=None, help="Marcus backend base URL for --upload-backtest")
+    backtest.add_argument("--bot-id", default=None, help="Bot id for --upload-backtest")
+    backtest.add_argument("--api-key", default=None, help="Bot API key for --upload-backtest")
+    backtest.add_argument("--signer-secret", default=None, help="Optional bot signer secret for --upload-backtest")
+    backtest.add_argument("--run-name", default=None, help="Optional display name for this backtest run")
     return parser
 
 
@@ -52,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "backtest":
         report = run_backtest(args)
         export_backtest_results(report, output_dir=args.output_dir, export_html=args.export_html)
+        if args.upload_backtest:
+            upload_backtest_report(report, args)
         print(f"cash={report.context.cash:.8f}")
         print(f"realized_pnl={report.context.realized_pnl:.8f}")
         print(f"unrealized_pnl={report.context.unrealized_pnl:.8f}")
@@ -82,6 +91,26 @@ def run_backtest(args: argparse.Namespace):
     )
     runner = PortfolioBacktestRunner(feed=feed, strategy=strategy, config=config)
     return runner.run()
+
+
+def upload_backtest_report(report: BacktestReport, args: argparse.Namespace) -> dict[str, Any]:
+    missing = [
+        name
+        for name in ("backend_url", "bot_id", "api_key")
+        if not getattr(args, name, None)
+    ]
+    if missing:
+        raise ValueError(f"--upload-backtest requires: {', '.join('--' + name.replace('_', '-') for name in missing)}")
+    client = BacktestUploadClient(
+        BacktestUploadConfig(
+            base_url=args.backend_url,
+            bot_id=args.bot_id,
+            api_key=args.api_key,
+            signer_secret=args.signer_secret,
+            run_name=args.run_name,
+        )
+    )
+    return client.push_backtest_report(report)
 
 
 def export_backtest_results(report: BacktestReport, *, output_dir: str, export_html: bool) -> None:
