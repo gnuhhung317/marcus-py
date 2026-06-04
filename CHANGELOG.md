@@ -6,7 +6,7 @@
 - GitHub Actions trusted publishing workflow for automatic PyPI uploads on GitHub Release publish events.
 - README release instructions for configuring PyPI trusted publisher setup.
 
-## [Unreleased]
+## [0.1.2] - 2026-06-04
 
 ### Added
 - `BacktestUploadClient` support for uploading `BacktestReport` batches to `POST /api/v1/bots/{botId}/backtest-results`.
@@ -16,6 +16,12 @@
 ### Changed
 - `Runner` now delegates dry-run persistence and sync through the state sync layer instead of owning transport logic directly.
 - SDK lifecycle docs now describe the full flow as historical backtest -> live dry-run -> operational telemetry.
+
+### Fixed
+- Relaxed `pandas`, `numpy`, and `ccxt` dependency constraints in `pyproject.toml` to support newer Python versions (such as Python 3.12) out of the box.
+
+## [Unreleased]
+
 
 ## [0.1.0] - 2026-04-24
 

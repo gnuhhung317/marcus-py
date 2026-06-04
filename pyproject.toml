@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-signal-sdk"
-version = "0.1.1"
+version = "0.1.2"
 description = "Developer SDK for validating and publishing trading signals"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -16,16 +16,18 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Operating System :: OS Independent",
 ]
 dependencies = [
   "pydantic>=2.7,<3.0",
   "requests>=2.32,<3.0",
   "urllib3>=2.2,<3.0",
-  "pandas>=1.5,<2.0",
-  "numpy>=1.26,<1.27",
-  "ccxt>=3.0,<4.0",
+  "pandas>=1.5,<3.0",
+  "numpy>=1.26,<3.0",
+  "ccxt>=3.0,<6.0",
 ]
+
 
 [project.urls]
 Homepage = "https://github.com/marcusio/quant-signal-sdk"
