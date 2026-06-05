@@ -26,8 +26,23 @@ class TelemetryClient:
         self._config = config
         self._session = session or requests.Session()
 
-    def push_telemetry(self, metrics: dict[str, Any]) -> dict[str, Any]:
-        payload = {"metrics": metrics}
+    def push_telemetry(
+        self,
+        equity: float,
+        realized_pnl: float = 0.0,
+        unrealized_pnl: float = 0.0,
+        metrics: dict[str, Any] | None = None,
+        timestamp: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "equity": equity,
+            "realizedPnl": realized_pnl,
+            "unrealizedPnl": unrealized_pnl,
+            "metrics": metrics or {},
+        }
+        if timestamp:
+            payload["timestamp"] = timestamp
+
         response = self._session.post(
             self._url("/telemetry"),
             headers=self._headers(payload),
