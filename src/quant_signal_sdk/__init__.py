@@ -23,10 +23,11 @@ from .interfaces import BaseDispatcher, BaseFeed, MarketEvent, PortfolioContext,
 from .runner import Runner
 from .runtime.backtest_upload import BacktestUploadClient, BacktestUploadConfig
 from .runtime.dry_run import BotDryRunClient, DryRunSyncClient, DryRunSyncConfig
-from .runtime.sync import DryRunStateTracker, FileSyncer, HttpDryRunSyncer, NoopSyncer, StateSyncer, WebSocketDryRunSyncer, WebSocketTransport
+from .runtime.sync import DryRunStateTracker, FileSyncer, HttpDryRunSyncer, NoopSyncer, StateSyncer, WebSocketDryRunSyncer, WebSocketTransport, TelemetrySyncer, HttpTelemetrySyncer, NoopTelemetrySyncer
 from .runtime.telemetry import BotTelemetryClient, TelemetryClient, TelemetryConfig
 from .adapters import BaseTrigger, CronTrigger, DataFrameFeed, IntervalTrigger, LiveHTTPDispatcher, LiveRESTFeed, MockDispatcher, ParquetReplayFeed, ScheduledRESTFeed
-from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, OhlcvReplayFeed, PortfolioBacktestRunner
+from .runtime.backtest import BacktestConfig, BacktestFill, BacktestMetrics, BacktestOrder, BacktestReport, ClosedTrade, EquityPoint, OhlcvReplayFeed, PortfolioBacktestRunner
+from .cli import export_backtest_results
 from .core_strategy import FundingArbitrageConfig, FundingArbitrageStrategy
 from .data_loader import BundleLoader, BundleManifest
 from .translator import SignalTranslator, BoundaryValidationException, RiskManager, PercentageRiskManager
@@ -66,12 +67,18 @@ __all__ = [
     "StateSyncer",
     "WebSocketDryRunSyncer",
     "WebSocketTransport",
+    "TelemetrySyncer",
+    "HttpTelemetrySyncer",
+    "NoopTelemetrySyncer",
     "TelemetryClient",
     "TelemetryConfig",
     "BacktestConfig",
     "BacktestFill",
+    "BacktestMetrics",
     "BacktestOrder",
     "BacktestReport",
+    "ClosedTrade",
+    "EquityPoint",
     "BaseTrigger",
     "DataFrameFeed",
     "CronTrigger",
@@ -91,4 +98,5 @@ __all__ = [
     "BoundaryValidationException",
     "RiskManager",
     "PercentageRiskManager",
+    "export_backtest_results",
 ]

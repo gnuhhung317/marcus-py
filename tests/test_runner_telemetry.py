@@ -11,7 +11,7 @@ from quant_signal_sdk.models import MarketType, OrderType, SignalAction, SignalP
 from quant_signal_sdk.runtime.dry_run_store import DryRunClosedTradeSnapshot, DryRunPortfolioSnapshot, DryRunPositionSnapshot, DryRunStateSnapshot, SQLiteDryRunStore
 from quant_signal_sdk.runtime.interfaces import BaseDispatcher, BaseFeed, BaseStrategy, MarketEvent, PortfolioContext
 from quant_signal_sdk.runtime.runner import Runner
-from quant_signal_sdk.runtime.sync import DryRunStateTracker, HttpDryRunSyncer
+from quant_signal_sdk.runtime.sync import DryRunStateTracker, HttpDryRunSyncer, HttpTelemetrySyncer, NoopTelemetrySyncer
 
 
 class TwoEventFeed(BaseFeed):
@@ -192,3 +192,74 @@ def test_runner_logs_and_continues_when_sync_fails(tmp_path):
     context = runner.run()
 
     assert context.positions == {}
+
+
+class FakeTelemetryClient:
+    def __init__(self) -> None:
+        self.pushed: list[dict[str, Any]] = []
+
+    def push_telemetry(
+        self,
+        equity: float,
+        realized_pnl: float = 0.0,
+        unrealized_pnl: float = 0.0,
+        metrics: dict[str, Any] | None = None,
+        timestamp: str | None = None,
+    ) -> dict[str, Any]:
+        self.pushed.append({
+            "equity": equity,
+            "realized_pnl": realized_pnl,
+            "unrealized_pnl": unrealized_pnl,
+            "metrics": metrics or {},
+            "timestamp": timestamp,
+        })
+        return {"status": "ok"}
+
+
+def test_runner_triggers_telemetry_syncer_during_run() -> None:
+    client = FakeTelemetryClient()
+    telemetry_syncer = HttpTelemetrySyncer(client, interval=0.0)  # interval=0 means every report triggers push
+
+    runner = Runner(
+        TwoEventFeed(),
+        OpenThenCloseStrategy(),
+        NoopDispatcher(),
+        initial_context=PortfolioContext(equity=10000.0, cash=10000.0, realized_pnl=50.0, unrealized_pnl=-10.0),
+        telemetry_syncer=telemetry_syncer,  # type: ignore[arg-type]
+    )
+
+    runner.run()
+
+    # Two events in stream:
+    # Event 1: strategy returns Open long signal -> applied -> report called -> client receives push
+    # Event 2: strategy returns Close long signal -> applied -> report called -> client receives push
+    # End of run: report called with force=True -> client receives push
+    assert len(client.pushed) == 3
+
+    # Verify values pushed in final force push
+    final_push = client.pushed[-1]
+    assert final_push["equity"] == 10000.0
+    assert final_push["realized_pnl"] == 50.0
+    assert final_push["unrealized_pnl"] == -10.0
+
+
+def test_http_telemetry_syncer_throttles_reports() -> None:
+    client = FakeTelemetryClient()
+    # High interval means report will only push once on the first call (or when forced)
+    telemetry_syncer = HttpTelemetrySyncer(client, interval=3600.0)
+
+    runner = Runner(
+        TwoEventFeed(),
+        OpenThenCloseStrategy(),
+        NoopDispatcher(),
+        initial_context=PortfolioContext(equity=10000.0),
+        telemetry_syncer=telemetry_syncer,  # type: ignore[arg-type]
+    )
+
+    runner.run()
+
+    # Event 1: report called -> time since last report > interval -> pushed (1)
+    # Event 2: report called -> throttled -> not pushed
+    # End of run: report called with force=True -> pushed (2)
+    assert len(client.pushed) == 2
+

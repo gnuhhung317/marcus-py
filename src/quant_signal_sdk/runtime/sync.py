@@ -10,6 +10,7 @@ from typing import Protocol
 
 from ..models import SignalAction, SignalPayload
 from .dry_run import DryRunSyncClient
+from .telemetry import TelemetryClient
 from .dry_run_store import DryRunClosedTradeSnapshot, DryRunPortfolioSnapshot, DryRunPositionSnapshot, DryRunStateSnapshot, SQLiteDryRunStore
 from .interfaces import PortfolioContext
 
@@ -207,4 +208,47 @@ class NoopSyncer:
         return None
 
 
-__all__ = ["StateSyncer", "WebSocketTransport", "DryRunStateTracker", "HttpDryRunSyncer", "WebSocketDryRunSyncer", "FileSyncer", "NoopSyncer"]
+class TelemetrySyncer(Protocol):
+    def report(self, context: PortfolioContext, force: bool = False) -> None:
+        ...
+
+
+class HttpTelemetrySyncer:
+    def __init__(self, client: TelemetryClient, interval: float = 60.0) -> None:
+        self._client = client
+        self._interval = interval
+        self._last_report_monotonic = 0.0
+
+    def report(self, context: PortfolioContext, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_report_monotonic < self._interval:
+            return
+        try:
+            self._client.push_telemetry(
+                equity=float(context.equity),
+                realized_pnl=float(context.realized_pnl),
+                unrealized_pnl=float(context.unrealized_pnl),
+                metrics={},
+            )
+            self._last_report_monotonic = time.monotonic()
+        except Exception:
+            logger.exception("Telemetry report failed")
+
+
+class NoopTelemetrySyncer:
+    def report(self, context: PortfolioContext, force: bool = False) -> None:
+        return None
+
+
+__all__ = [
+    "StateSyncer",
+    "WebSocketTransport",
+    "DryRunStateTracker",
+    "HttpDryRunSyncer",
+    "WebSocketDryRunSyncer",
+    "FileSyncer",
+    "NoopSyncer",
+    "TelemetrySyncer",
+    "HttpTelemetrySyncer",
+    "NoopTelemetrySyncer",
+]

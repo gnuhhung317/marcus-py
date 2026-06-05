@@ -353,36 +353,34 @@ runner.run()
 
 ---
 
-### Pattern 4A: Telemetry (separate heartbeat)
+### Pattern 4A: Telemetry (Native Runner Integration)
 
-`TelemetryClient` is a **separate transport** for operational metrics (CPU, memory, uptime, bot health). It is **not** coupled to the runner.
+`TelemetryClient` is wrapped by `HttpTelemetrySyncer` to report operational metrics (equity, realized PnL, unrealized PnL, etc.) natively in the `Runner` core loop. It automatically handles throttling based on the configured `interval`.
 
 ```python
 from quant_signal_sdk.runtime.telemetry import TelemetryClient, TelemetryConfig
-import time
+from quant_signal_sdk.runtime.sync import HttpTelemetrySyncer
 
-telemetry = TelemetryClient(TelemetryConfig(
+telemetry_client = TelemetryClient(TelemetryConfig(
     base_url="https://marcus-api.tromoi.xyz",
     bot_id="bot_abc123",
     api_key="sk_...",
 ))
 
-# Push metrics whenever you want (separate thread, cron, or after each signal)
-telemetry.push_telemetry(
-    equity=10423.50,
-    realized_pnl=423.50,
-    unrealized_pnl=0.0,
-    metrics={
-        "positions": 2,
-        "cpu_percent": 45.0,
-        "memory_mb": 128.0,
-        "uptime_seconds": time.time(),
-    }
+# Create telemetry syncer to report every 60 seconds (throttled automatically)
+telemetry_syncer = HttpTelemetrySyncer(client=telemetry_client, interval=60.0)
+
+# Pass it directly to the Runner constructor:
+runner = Runner(
+    feed=feed,
+    strategy=MyBot(),
+    dispatcher=dispatcher,
+    telemetry_syncer=telemetry_syncer,
 )
+runner.run()
 ```
 
-POSTs to `POST /api/v1/bots/{id}/telemetry`. Backend stores as `BotTelemetryEntity`.  
-If the bot stops pushing, the UI shows it as **offline**.
+POSTs to `POST /api/v1/bots/{id}/telemetry` under the hood. If the runner stops running or fails to report telemetry within the expected heartbeat window, the UI shows the bot as **offline**.
 
 ---
 
@@ -410,12 +408,13 @@ syncer = WebSocketDryRunSyncer(
 # Option 3: File-based sync (local only)
 syncer = FileSyncer(filepath="/state/dry_run_state.json")
 
-# Use with Runner via after_signal_applied callback:
+# Use with Runner:
 runner = Runner(
     feed=feed,
     strategy=MyBot(),
     dispatcher=dispatcher,
-    state_syncer=syncer,  # syncs context after each signal
+    state_syncer=syncer,                 # syncs ledger context after each signal
+    telemetry_syncer=telemetry_syncer,   # syncs operational status periodically
 )
 runner.run()
 ```

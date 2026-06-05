@@ -7,7 +7,7 @@ from typing import Any
 
 from ..models import SignalAction, SignalPayload, SignalStatus
 from .interfaces import BaseDispatcher, BaseFeed, BaseStrategy, PortfolioContext
-from .sync import StateSyncer
+from .sync import StateSyncer, TelemetrySyncer, NoopTelemetrySyncer
 
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ class Runner:
         initial_context: PortfolioContext | None = None,
         after_signal_applied: Callable[[SignalPayload, PortfolioContext], None] | None = None,
         state_syncer: StateSyncer | None = None,
+        telemetry_syncer: TelemetrySyncer | None = None,
     ) -> None:
         self._feed = feed
         self._strategy = strategy
@@ -30,6 +31,7 @@ class Runner:
         self._context = initial_context or PortfolioContext()
         self._after_signal_applied = after_signal_applied
         self._state_syncer = state_syncer
+        self._telemetry_syncer = telemetry_syncer
 
     @property
     def context(self) -> PortfolioContext:
@@ -65,8 +67,12 @@ class Runner:
                     self._after_signal_applied(signal, self._context)
                 if self._state_syncer is not None:
                     self._state_syncer.sync(self._context)
+            if self._telemetry_syncer is not None:
+                self._telemetry_syncer.report(self._context)
         if self._state_syncer is not None:
             self._state_syncer.sync(self._context, force=True)
+        if self._telemetry_syncer is not None:
+            self._telemetry_syncer.report(self._context, force=True)
         return self._context
 
     def _recover_context(self) -> None:
