@@ -2,6 +2,8 @@
 
 This repository now contains only the developer SDK package: `quant_signal_sdk`.
 
+> 📖 **New:** See [DEVELOPER.md](DEVELOPER.md) for a complete step-by-step guide — writing strategies, backtesting with real data, uploading results to Marcus backend, and running live bots with telemetry.
+
 Local executor client code has been moved to `local-executor-client` in the workspace.
 
 ## Features

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 
 from .data_loader import BundleLoader
 from .runtime.adapters import DataFrameFeed
@@ -49,6 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--api-key", default=None, help="Bot API key for --upload-backtest")
     backtest.add_argument("--signer-secret", default=None, help="Optional bot signer secret for --upload-backtest")
     backtest.add_argument("--run-name", default=None, help="Optional display name for this backtest run")
+
+    upload = subparsers.add_parser("upload", help="Upload backtest results directory to Marcus backend")
+    upload.add_argument("report_dir", help="Path to backtest results directory (containing metrics.json, equity_curve.csv, closed_trades.csv)")
+    upload.add_argument("--bot-id", required=True, help="Bot ID registered on Marcus")
+    upload.add_argument("--api-key", required=True, help="Bot API key for authentication")
+    upload.add_argument("--backend-url", default="https://marcus-api.tromoi.xyz", help="Marcus backend base URL")
+    upload.add_argument("--signer-secret", default=None, help="Optional bot signer secret for HMAC signing")
+    upload.add_argument("--run-name", default=None, help="Optional display name for this backtest run")
+
     return parser
 
 
@@ -68,7 +78,123 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fills={len(report.fills)}")
         return 0
 
+    if args.command == "upload":
+        return _run_upload(args)
+
     raise SystemExit(f"unknown command: {args.command}")
+
+
+def _run_upload(args: argparse.Namespace) -> int:
+    """Upload an existing backtest results directory to the Marcus backend."""
+    report_dir = Path(args.report_dir)
+    if not report_dir.is_dir():
+        raise SystemExit(f"Report directory not found: {report_dir}")
+
+    for required in ("metrics.json", "equity_curve.csv", "closed_trades.csv"):
+        if not (report_dir / required).exists():
+            raise SystemExit(f"Missing required file in {report_dir}: {required}")
+
+    report = _report_from_directory(report_dir)
+
+    config = BacktestUploadConfig(
+        base_url=args.backend_url,
+        bot_id=args.bot_id,
+        api_key=args.api_key,
+        signer_secret=args.signer_secret,
+        run_name=args.run_name,
+    )
+    client = BacktestUploadClient(config)
+    try:
+        response = client.push_backtest_report(report)
+    except requests.HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 413:
+            raise SystemExit(
+                "Backtest upload rejected with HTTP 413 Payload Too Large. "
+                "This usually means the backend does not yet accept the gzipped backtest payload size."
+            ) from exc
+        if response is not None and response.status_code == 400:
+            raise SystemExit(
+                f"Backtest upload rejected with HTTP 400. Response body: {response.text}"
+            ) from exc
+        raise
+    print(f"Upload successful. Response: {response}")
+    print(f"View at: https://marcus-ui.tromoi.xyz/terminal/leaderboard")
+    return 0
+
+
+def _report_from_directory(report_dir: Path) -> BacktestReport:
+    """Reconstruct a BacktestReport from exported CSV/JSON files."""
+    from quant_signal_sdk.runtime.backtest import BacktestMetrics, EquityPoint, ClosedTrade
+
+    metrics: BacktestMetrics | None = None
+    metrics_path = report_dir / "metrics.json"
+    if metrics_path.exists():
+        raw = json.loads(metrics_path.read_text(encoding="utf-8"))
+        metrics = BacktestMetrics(**raw)
+
+    equity_history: list[EquityPoint] = []
+    equity_path = report_dir / "equity_curve.csv"
+    if equity_path.exists():
+        for row in _read_csv_dicts(equity_path):
+            equity_history.append(EquityPoint(
+                timestamp=datetime.fromisoformat(row.get("timestamp", "")),
+                cash=float(row.get("cash", 0)),
+                unrealized_pnl=float(row.get("unrealized_pnl", 0)),
+                realized_pnl=float(row.get("realized_pnl", 0)),
+                total_fees=float(row.get("total_fees", 0)),
+                equity=float(row.get("equity", 0)),
+            ))
+
+    closed_trades: list[ClosedTrade] = []
+    trades_path = report_dir / "closed_trades.csv"
+    if trades_path.exists():
+        for row in _read_csv_dicts(trades_path):
+            closed_trades.append(ClosedTrade(
+                symbol=str(row.get("symbol", "")),
+                market_type=str(row.get("market_type", "")),
+                side=str(row.get("side", "")),
+                entry_timestamp=datetime.fromisoformat(row.get("entry_timestamp", "")),
+                exit_timestamp=datetime.fromisoformat(row.get("exit_timestamp", "")),
+                quantity=float(row.get("quantity", 0)),
+                entry_price=float(row.get("entry_price", 0)),
+                exit_price=float(row.get("exit_price", 0)),
+                entry_fees=float(row.get("entry_fees", 0)),
+                exit_fees=float(row.get("exit_fees", 0)),
+                pnl=float(row.get("pnl", 0)),
+                duration_seconds=float(row.get("duration_seconds", 0)),
+            ))
+
+    return BacktestReport(
+        context=_build_context_from_metrics(metrics, equity_history),
+        fills=[],
+        orders=[],
+        equity_history=equity_history,
+        candle_history=[],
+        closed_trades=closed_trades,
+        metrics=metrics,
+    )
+
+
+def _build_context_from_metrics(metrics: Any, equity_history: list[Any]):
+    """Build a minimal PortfolioContext for the report."""
+    from quant_signal_sdk.runtime.interfaces import PortfolioContext
+
+    final_eq = equity_history[-1] if equity_history else None
+    return PortfolioContext(
+        cash=final_eq.cash if final_eq else 0.0,
+        equity=final_eq.equity if final_eq else 0.0,
+        realized_pnl=final_eq.realized_pnl if final_eq else 0.0,
+        unrealized_pnl=final_eq.unrealized_pnl if final_eq else 0.0,
+        total_fees=final_eq.total_fees if final_eq else 0.0,
+        timestamp=final_eq.timestamp if final_eq else None,
+    )
+
+
+def _read_csv_dicts(path: Path) -> list[dict[str, str]]:
+    """Read a CSV file and return a list of dicts (strings)."""
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))
 
 
 def run_backtest(args: argparse.Namespace):

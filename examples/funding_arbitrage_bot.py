@@ -1,30 +1,38 @@
-"""Funding arbitrage example with explicit separation between data fetching and decision logic.
+"""Funding arbitrage example with a single shared strategy for live and backtest.
 
-This module is intentionally structured to show three distinct layers:
+The module keeps the reusable strategy in ``quant_signal_sdk.core_strategy`` and
+uses thin adapters here for:
 
-1. A user-owned fetcher that gathers market data and returns a DataFrame.
-2. A user-owned decision layer that turns the latest snapshot into a trade decision.
-3. SDK wiring that schedules the fetcher and dispatches signals through the client.
+1. live market-data fetching + signal dispatch
+2. backtest replay + report export + Marcus upload
 
-Swap `ScheduledRESTFeed` with `DataFrameFeed` to reuse the same decision logic for backtests.
+Legacy helpers are preserved for compatibility with existing tests, but the
+main execution path now routes through ``FundingArbitrageStrategy``.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
 
 import pandas as pd
 
 from quant_signal_sdk.ccxt_client import CCXTClient
 from quant_signal_sdk.client import QuantSignalClient
+from quant_signal_sdk.cli import export_backtest_results
+from quant_signal_sdk.core_strategy import FundingArbitrageConfig, FundingArbitrageStrategy
 from quant_signal_sdk.models import MarginMode, MarketType, OrderType, SignalAction, SignalPayload
-from quant_signal_sdk.runtime.adapters import CronTrigger, DataFrameFeed, ScheduledRESTFeed
+from quant_signal_sdk.runtime.adapters import CronTrigger, DataFrameFeed, LiveHTTPDispatcher, MockDispatcher, ScheduledRESTFeed
+from quant_signal_sdk.runtime.backtest import BacktestConfig, PortfolioBacktestRunner
+from quant_signal_sdk.runtime.backtest_upload import BacktestUploadClient, BacktestUploadConfig
+from quant_signal_sdk.runtime.interfaces import PortfolioContext
+from quant_signal_sdk.runtime.runner import Runner
 
 
 class QuantFeatureEngineer:
@@ -71,14 +79,16 @@ class ArbitrageBot:
         self.features = features or []
 
     def predict_scores(self, feature_df: pd.DataFrame) -> pd.DataFrame:
-        # Simple heuristic: rank by `sum_funding_24h` if present, otherwise funding_rate
-        if "sum_funding_24h" in feature_df.columns:
-            feature_df = feature_df.copy()
-            feature_df["predicted_score"] = feature_df["sum_funding_24h"].astype(float)
-            return feature_df
-
+        # Prefer the canonical 168h feature, then fall back to the older 24h field.
+        score_column = next(
+            (column for column in ("sum_funding_168h", "sum_funding_24h", "funding_rate") if column in feature_df.columns),
+            None,
+        )
         feature_df = feature_df.copy()
-        feature_df["predicted_score"] = feature_df.get("funding_rate", 0.0).astype(float)
+        if score_column is None:
+            feature_df["predicted_score"] = 0.0
+            return feature_df
+        feature_df["predicted_score"] = feature_df[score_column].astype(float)
         return feature_df
 
 
@@ -90,11 +100,7 @@ def build_arbitrage_fetcher(
     timeframe: str,
     limit: int = 200,
 ) -> Callable[[], pd.DataFrame]:
-    """Return a zero-arg fetcher the SDK can call on schedule.
-
-    The fetcher owns the data gathering concern. It can be replaced without
-    changing decision logic or SDK wiring.
-    """
+    """Return a zero-arg fetcher the SDK can call on schedule."""
 
     client = CCXTClient(exchange_id=exchange_id)
 
@@ -117,14 +123,16 @@ def build_arbitrage_fetcher(
 
         latest_spot = spot_frame.iloc[-1]
         latest_futures = futures_frame.iloc[-1]
-        timestamp_value = datetime.now(timezone.utc)
 
         return pd.DataFrame(
             [
                 {
-                    "timestamp": timestamp_value,
+                    "timestamp": datetime.now(timezone.utc),
                     "spot_symbol": spot_symbol,
                     "futures_symbol": futures_symbol,
+                    "open": float(latest_futures["open"]),
+                    "high": float(latest_futures["high"]),
+                    "low": float(latest_futures["low"]),
                     "close": float(latest_futures["close"]),
                     "spot_close": float(latest_spot["close"]),
                     "futures_close": float(latest_futures["close"]),
@@ -140,7 +148,7 @@ def build_arbitrage_fetcher(
 def build_replay_feed(replay_csv: str) -> DataFrameFeed:
     """Use the same decision logic against a file-backed DataFrame."""
 
-    return DataFrameFeed(pd.read_csv(replay_csv))
+    return DataFrameFeed(_load_dataframe_source(replay_csv), timestamp_col="timestamp")
 
 
 def should_open_trade(scores: pd.DataFrame, threshold: float) -> bool:
@@ -184,7 +192,6 @@ class StateManager:
                 payload = json.load(fh)
         except Exception:
             return {}
-        # stored as mapping symbol->amount
         return payload or {}
 
     def save_portfolio(self, portfolio: Dict[str, Any]) -> None:
@@ -209,8 +216,10 @@ def dispatch_arbitrage_orders(
     amount: float,
     leverage: int | None = None,
     margin_mode: str | None = None,
+    futures_symbol: str | None = None,
 ) -> None:
-    norm = _normalize_symbol_for_api(symbol)
+    spot_norm = _normalize_symbol_for_api(symbol)
+    future_norm = _normalize_symbol_for_api(futures_symbol or symbol)
     act = action.upper()
 
     if act == "OPEN":
@@ -222,7 +231,7 @@ def dispatch_arbitrage_orders(
 
     spot_signal = SignalPayload(
         action=spot_action,
-        symbol=norm,
+        symbol=spot_norm,
         market_type=MarketType.SPOT,
         order_type=OrderType.MARKET,
         amount=amount,
@@ -231,7 +240,7 @@ def dispatch_arbitrage_orders(
 
     future_signal = SignalPayload(
         action=future_action,
-        symbol=norm,
+        symbol=future_norm,
         market_type=MarketType.FUTURE,
         order_type=OrderType.MARKET,
         amount=amount,
@@ -240,15 +249,12 @@ def dispatch_arbitrage_orders(
         metadata={"strategy": "funding_arbitrage", "leg": "futures"},
     )
 
-    # Prefer structured send_signal which validates and serializes the model
     client.send_signal(spot_signal)
     client.send_signal(future_signal)
 
 
 def fetch_arbitrage_candidates(exchange: Any) -> Dict[str, Any]:
-    # Build a map of swap/perpetual markets that also have a spot counterpart
     markets = getattr(exchange, "markets", {}) or {}
-    funding = {}
     try:
         funding = exchange.fetch_funding_rates() or {}
     except Exception:
@@ -256,7 +262,6 @@ def fetch_arbitrage_candidates(exchange: Any) -> Dict[str, Any]:
 
     candidates: Dict[str, Any] = {}
     for symbol, info in markets.items():
-        # prefer explicit swap flag, but accept naming convention with ':'
         is_swap = bool(info.get("swap") or ":" in symbol)
         if not is_swap:
             continue
@@ -266,8 +271,13 @@ def fetch_arbitrage_candidates(exchange: Any) -> Dict[str, Any]:
         if not spot_info or not spot_info.get("spot"):
             continue
 
-        fr = funding.get(symbol) or funding.get(symbol.replace("/", "/")) or {}
-        fr_val = fr.get("fundingRate") if isinstance(fr, dict) else None
+        funding_payload = (
+            funding.get(symbol)
+            or funding.get(symbol.replace("/", ""))
+            or funding.get(symbol.split(":")[0])
+            or {}
+        )
+        fr_val = funding_payload.get("fundingRate") if isinstance(funding_payload, dict) else None
         try:
             fr_f = float(fr_val) if fr_val is not None else 0.0
         except (TypeError, ValueError):
@@ -290,6 +300,7 @@ def run_event_loop(
     trade_amount: float,
     threshold: float,
 ) -> None:
+    # Legacy compatibility path for tests and older examples.
     for event in feed.stream():
         snapshot = pd.DataFrame([event.payload])
         scores = evaluate_arbitrage_snapshot(engineer, bot, snapshot)
@@ -297,55 +308,162 @@ def run_event_loop(
             dispatch_arbitrage_orders(
                 client=client,
                 symbol=str(event.payload.get("futures_symbol") or event.payload.get("spot_symbol") or "BTC/USDT:USDT"),
+                futures_symbol=str(event.payload.get("futures_symbol") or event.payload.get("spot_symbol") or "BTC/USDT:USDT"),
                 action="OPEN",
                 amount=trade_amount,
             )
 
 
-def main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Funding arbitrage bot example with separated fetch/decision layers")
-    parser.add_argument("--base-url", required=True)
-    parser.add_argument("--bot-id", required=True)
-    parser.add_argument("--exchange", default="binance")
-    parser.add_argument("--symbol", default="BTC/USDT")
-    parser.add_argument("--futures-symbol", default=None, help="Defaults to <symbol>:USDT")
-    parser.add_argument("--timeframe", default="1h", help="Candle timeframe used by the fetcher")
-    parser.add_argument("--schedule-timeframe", default="1h", help="Trigger cadence for ScheduledRESTFeed")
-    parser.add_argument("--trade-threshold", type=float, default=0.05)
-    parser.add_argument("--trade-amount", type=float, default=0.1)
-    parser.add_argument("--replay-csv", default=None, help="Replay a CSV file through DataFrameFeed for backtests")
-    parser.add_argument("--bot-api-key", default=None)
-    parser.add_argument("--bot-signer-secret", default=None)
-    parser.add_argument("--auth-token", default=None)
-    args = parser.parse_args()
-
-    client = QuantSignalClient(base_url=args.base_url, api_key=args.bot_api_key or "", default_bot_id=args.bot_id, signer_secret=args.bot_signer_secret)
-    engineer = QuantFeatureEngineer()
-    bot = ArbitrageBot(model_paths=[], features=[])
-    futures_symbol = args.futures_symbol or f"{args.symbol}:USDT"
-
-    if args.replay_csv:
-        feed: DataFrameFeed | ScheduledRESTFeed = build_replay_feed(args.replay_csv)
-    else:
-        fetcher = build_arbitrage_fetcher(
-            exchange_id=args.exchange,
-            spot_symbol=args.symbol,
-            futures_symbol=futures_symbol,
-            timeframe=args.timeframe,
-        )
-        feed = ScheduledRESTFeed(trigger=CronTrigger(args.schedule_timeframe), fetcher=fetcher)
-
-    # The SDK handles timing and event delivery; only the fetcher and decision logic are user-owned.
-    run_event_loop(
-        feed=feed,
-        client=client,
-        engineer=engineer,
-        bot=bot,
-        trade_amount=args.trade_amount,
-        threshold=args.trade_threshold,
+def _build_strategy(args: argparse.Namespace) -> FundingArbitrageStrategy:
+    config = FundingArbitrageConfig(
+        target_notional=args.target_notional,
+        min_hold_hours=args.min_hold_hours,
+        open_funding_threshold=args.open_funding_threshold,
+        close_funding_threshold=args.close_funding_threshold,
+        leverage=args.leverage,
+        margin_mode=MarginMode(args.margin_mode.upper()),
     )
+    return FundingArbitrageStrategy(bot_id=args.bot_id, config=config)
+
+
+def _load_dataframe_source(source: str) -> pd.DataFrame:
+    path = Path(source)
+    if not path.exists():
+        raise FileNotFoundError(f"Data source not found: {source}")
+
+    if path.is_dir():
+        candidates = sorted(path.glob("*.parquet"))
+        if not candidates:
+            raise ValueError(f"No parquet files found in directory: {source}")
+        path = candidates[0]
+
+    if path.suffix.lower() in {".parquet", ".pq"}:
+        frame = pd.read_parquet(path)
+    else:
+        frame = pd.read_csv(path)
+
+    if "timestamp" in frame.columns:
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="coerce")
+        frame = frame.dropna(subset=["timestamp"])
+
+    return frame
+
+
+def _build_live_runner(args: argparse.Namespace) -> Runner:
+    client = QuantSignalClient(
+        base_url=args.base_url,
+        api_key=args.bot_api_key or "",
+        default_bot_id=args.bot_id,
+        signer_secret=args.bot_signer_secret,
+    )
+    strategy = _build_strategy(args)
+    fetcher = build_arbitrage_fetcher(
+        exchange_id=args.exchange,
+        spot_symbol=args.symbol,
+        futures_symbol=args.futures_symbol or f"{args.symbol}:USDT",
+        timeframe=args.timeframe,
+    )
+    feed = ScheduledRESTFeed(trigger=CronTrigger(args.schedule_timeframe), fetcher=fetcher)
+    dispatcher = LiveHTTPDispatcher(client, bot_api_key=args.bot_api_key)
+    return Runner(feed=feed, strategy=strategy, dispatcher=dispatcher)
+
+
+def _build_backtest_runner(args: argparse.Namespace) -> PortfolioBacktestRunner:
+    source = args.backtest_csv or args.replay_csv or args.backtest_parquet
+    if not source:
+        raise ValueError("Backtest mode requires one of --backtest-csv, --backtest-parquet, or --replay-csv")
+
+    dataframe = _load_dataframe_source(source)
+    feed = DataFrameFeed(dataframe, timestamp_col="timestamp")
+    strategy = _build_strategy(args)
+    config = BacktestConfig(
+        initial_cash=args.initial_cash,
+        maker_fee_rate=args.maker_fee,
+        taker_fee_rate=args.taker_fee,
+        slippage_rate=args.slippage,
+        default_max_size_percent=args.default_max_size_percent,
+    )
+    return PortfolioBacktestRunner(feed=feed, strategy=strategy, config=config)
+
+
+def _upload_backtest_report(report: Any, args: argparse.Namespace) -> dict[str, Any]:
+    client = BacktestUploadClient(
+        BacktestUploadConfig(
+            base_url=args.backend_url,
+            bot_id=args.bot_id,
+            api_key=args.api_key or "",
+            signer_secret=args.signer_secret,
+            run_name=args.run_name,
+        )
+    )
+    return client.push_backtest_report(report)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Funding arbitrage example with a shared strategy for live and backtest")
+    parser.add_argument("--mode", choices=("live", "backtest"), default="live")
+    parser.add_argument("--bot-id", required=True, help="Bot id used in emitted SignalPayloads")
+
+    parser.add_argument("--base-url", default="https://marcus-api.tromoi.xyz", help="Backend base URL")
+    parser.add_argument("--bot-api-key", default=None, help="Runtime bot API key")
+    parser.add_argument("--bot-signer-secret", default=None, help="Runtime bot HMAC signer secret")
+
+    parser.add_argument("--spot-symbol", default="BTC/USDT", help="Spot symbol for live feed")
+    parser.add_argument("--futures-symbol", default=None, help="Futures symbol for live feed")
+    parser.add_argument("--exchange", default="binance", help="CCXT exchange id")
+    parser.add_argument("--timeframe", default="1h", help="Candle timeframe")
+    parser.add_argument("--schedule-timeframe", default="1h", help="Polling cadence for live mode")
+
+    parser.add_argument("--target-notional", type=float, default=10.0, help="Target notional per leg")
+    parser.add_argument("--min-hold-hours", type=float, default=8.0, help="Minimum hold duration before close")
+    parser.add_argument("--open-funding-threshold", type=float, default=0.0, help="Funding threshold to open")
+    parser.add_argument("--close-funding-threshold", type=float, default=0.0, help="Funding threshold to close")
+    parser.add_argument("--leverage", type=int, default=1, help="Future leverage")
+    parser.add_argument("--margin-mode", default="CROSS", choices=("CROSS", "ISOLATED"), help="Future margin mode")
+
+    parser.add_argument("--backtest-csv", default=None, help="Replay a CSV file through DataFrameFeed for backtests")
+    parser.add_argument("--backtest-parquet", default=None, help="Replay a Parquet file or directory for backtests")
+    parser.add_argument("--replay-csv", default=None, help="Legacy alias for --backtest-csv")
+    parser.add_argument("--initial-cash", type=float, default=0.0, help="Starting cash for backtests")
+    parser.add_argument("--maker-fee", type=float, default=0.0, help="Maker fee rate")
+    parser.add_argument("--taker-fee", type=float, default=0.0, help="Taker fee rate")
+    parser.add_argument("--slippage", type=float, default=0.0, help="Slippage rate")
+    parser.add_argument("--default-max-size-percent", type=float, default=None, help="Optional max size percent clamp")
+    parser.add_argument("--output-dir", default="backtest_output", help="Directory for CSV/HTML exports")
+    parser.add_argument("--export-html", action="store_true", help="Write a static HTML tear sheet")
+    parser.add_argument("--upload-backtest", action="store_true", help="Upload the completed backtest report to Marcus backend")
+    parser.add_argument("--backend-url", default="https://marcus-api.tromoi.xyz", help="Marcus backend base URL")
+    parser.add_argument("--api-key", default=None, help="Bot API key for backtest upload")
+    parser.add_argument("--signer-secret", default=None, help="Optional bot signer secret for backtest upload")
+    parser.add_argument("--run-name", default=None, help="Optional display name for this backtest run")
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    backtest_source = args.backtest_csv or args.backtest_parquet or args.replay_csv
+    mode = args.mode
+    if backtest_source:
+        mode = "backtest"
+
+    if mode == "backtest":
+        runner = _build_backtest_runner(args)
+        report = runner.run()
+        export_backtest_results(report, output_dir=args.output_dir, export_html=args.export_html)
+        print(f"cash={report.context.cash:.8f}")
+        print(f"realized_pnl={report.context.realized_pnl:.8f}")
+        print(f"unrealized_pnl={report.context.unrealized_pnl:.8f}")
+        print(f"equity={report.context.equity:.8f}")
+        print(f"fills={len(report.fills)}")
+
+        if args.upload_backtest:
+            response = _upload_backtest_report(report, args)
+            print(f"Upload successful. Response: {response}")
+            print("View at: https://marcus-ui.tromoi.xyz/terminal/leaderboard")
+        return
+
+    runner = _build_live_runner(args)
+    runner.run()
 
 
 if __name__ == "__main__":

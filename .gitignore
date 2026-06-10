@@ -1,2 +1,8 @@
 __pycache__/
 sdk.txt
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
