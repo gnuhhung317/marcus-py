@@ -84,6 +84,16 @@ def test_install_ohlcv_writes_expected_parquet(monkeypatch, tmp_path) -> None:
     _FakeDownloader.instances.clear()
     monkeypatch.setattr(cli, "ExchangeDataDownloader", _FakeDownloader)
 
+    written: dict[str, object] = {}
+
+    def fake_to_parquet(self, path, index=False, **kwargs):
+        written["path"] = Path(path)
+        written["frame"] = self.copy(deep=True)
+        written["index"] = index
+        Path(path).write_text("fake parquet payload", encoding="utf-8")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", fake_to_parquet, raising=True)
+
     exit_code = cli.main(
         [
             "install-ohlcv",
@@ -112,7 +122,8 @@ def test_install_ohlcv_writes_expected_parquet(monkeypatch, tmp_path) -> None:
 
     output_path = Path(tmp_path) / "ohlcv" / "BTCUSDT.parquet"
     assert output_path.exists()
+    assert written["path"] == output_path
 
-    frame = pd.read_parquet(output_path)
+    frame = written["frame"]
     assert list(frame.columns) == ["timestamp", "open", "high", "low", "close", "volume"]
     assert frame["close"].iloc[0] == 100.5

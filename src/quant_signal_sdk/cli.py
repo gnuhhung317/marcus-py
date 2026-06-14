@@ -146,7 +146,13 @@ def _run_install_ohlcv(args: argparse.Namespace) -> int:
             print(f"  No data fetched for {symbol}")
             continue
 
-        frame.to_parquet(target_path, index=False)
+        try:
+            frame.to_parquet(target_path, index=False)
+        except ImportError as exc:
+            raise SystemExit(
+                "Parquet support is required for install-ohlcv. Install the SDK with `pip install -e .[market-data]` "
+                "or add `pyarrow` / `fastparquet` to your environment."
+            ) from exc
         start_ts = frame["timestamp"].min()
         end_ts = frame["timestamp"].max()
         print(f"  Saved {len(frame)} rows ({start_ts} -> {end_ts})")

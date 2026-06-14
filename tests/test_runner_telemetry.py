@@ -12,6 +12,7 @@ from quant_signal_sdk.runtime.dry_run_store import DryRunClosedTradeSnapshot, Dr
 from quant_signal_sdk.runtime.interfaces import BaseDispatcher, BaseFeed, BaseStrategy, MarketEvent, PortfolioContext
 from quant_signal_sdk.runtime.runner import Runner
 from quant_signal_sdk.runtime.sync import DryRunStateTracker, HttpDryRunSyncer, HttpTelemetrySyncer, NoopTelemetrySyncer
+import quant_signal_sdk.runtime.sync as sync_module
 
 
 class TwoEventFeed(BaseFeed):
@@ -243,10 +244,13 @@ def test_runner_triggers_telemetry_syncer_during_run() -> None:
     assert final_push["unrealized_pnl"] == -10.0
 
 
-def test_http_telemetry_syncer_throttles_reports() -> None:
+def test_http_telemetry_syncer_throttles_reports(monkeypatch) -> None:
     client = FakeTelemetryClient()
     # High interval means report will only push once on the first call (or when forced)
     telemetry_syncer = HttpTelemetrySyncer(client, interval=3600.0)
+    monotonic_values = iter([4000.0, 4000.0, 4010.0, 8000.0, 8000.0])
+
+    monkeypatch.setattr(sync_module.time, "monotonic", lambda: next(monotonic_values))
 
     runner = Runner(
         TwoEventFeed(),
@@ -262,4 +266,3 @@ def test_http_telemetry_syncer_throttles_reports() -> None:
     # Event 2: report called -> throttled -> not pushed
     # End of run: report called with force=True -> pushed (2)
     assert len(client.pushed) == 2
-
