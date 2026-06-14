@@ -17,10 +17,11 @@ from .models import (
 )
 from .signing import generate_hmac_signature
 from .strategy import BaseStrategy
-from .data_provider import DataProvider, CcxtDataProvider
+from .data_provider import DataProvider, ExchangeDataProvider, CcxtDataProvider
 from .feature_engineer import FeatureEngineer
 from .interfaces import BaseDispatcher, BaseFeed, MarketEvent, PortfolioContext, Signal
 from .runner import Runner
+from .ccxt_client import ExchangeDataDownloader, CCXTClient, close_prices_from_ohlcv
 from .runtime.backtest_upload import BacktestUploadClient, BacktestUploadConfig
 from .runtime.dry_run import BotDryRunClient, DryRunSyncClient, DryRunSyncConfig
 from .runtime.sync import DryRunStateTracker, FileSyncer, HttpDryRunSyncer, NoopSyncer, StateSyncer, WebSocketDryRunSyncer, WebSocketTransport, TelemetrySyncer, HttpTelemetrySyncer, NoopTelemetrySyncer
@@ -45,7 +46,11 @@ __all__ = [
     "generate_hmac_signature",
     "BaseStrategy",
     "DataProvider",
+    "ExchangeDataProvider",
     "CcxtDataProvider",
+    "ExchangeDataDownloader",
+    "CCXTClient",
+    "close_prices_from_ohlcv",
     "FeatureEngineer",
     "BaseDispatcher",
     "BaseFeed",

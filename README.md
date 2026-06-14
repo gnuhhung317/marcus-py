@@ -12,6 +12,7 @@ Local executor client code has been moved to `local-executor-client` in the work
 - Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
 - High-level API client (`QuantSignalClient`) for authenticated signal submission.
 - Minimal `BaseStrategy` contract for strategy inheritance.
+- Exchange-agnostic CCXT market-data downloader for OHLCV, symbol discovery, and funding history.
 - In-memory portfolio backtest runner with OHLCV replay and execution-policy enforcement.
 - Backtest publishing client for uploading completed `BacktestReport` objects to the backend.
 - Pluggable dry-run sync helpers (`StateSyncer`, `HttpDryRunSyncer`, `WebSocketDryRunSyncer`, `FileSyncer`).
@@ -108,6 +109,23 @@ Install both dev and market-data extras together:
 
 ```bash
 pip install -e .[dev,market-data]
+```
+
+For multi-exchange downloads, use the generic downloader:
+
+```python
+from quant_signal_sdk import ExchangeDataDownloader
+
+downloader = ExchangeDataDownloader(exchange_id="binance", market_type="swap")
+frame = downloader.fetch_ohlcv_frame("BTC/USDT:USDT", timeframe="1h", since="2024-01-01", paginate=True)
+symbols = downloader.list_symbols(quote_asset="USDT", market_type="swap")
+```
+
+Or use the CLI:
+
+```bash
+quant-sdk install-ohlcv --exchange binance --symbols BTC/USDT --data-root data
+quant-sdk install-data --exchange binance --symbols BTC/USDT --data-root data
 ```
 
 After publishing to PyPI, users can install the released package with:

@@ -15,6 +15,7 @@ from typing import Any
 import pandas as pd
 import requests
 
+from .ccxt_client import ExchangeDataDownloader
 from .data_loader import BundleLoader
 from .runtime.adapters import DataFrameFeed
 from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, PortfolioBacktestRunner
@@ -28,6 +29,12 @@ logger = logging.getLogger(__name__)
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="quant-sdk")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    install_ohlcv = subparsers.add_parser("install-ohlcv", help="Download and sync OHLCV candles from an exchange")
+    _add_install_ohlcv_arguments(install_ohlcv)
+
+    install_data = subparsers.add_parser("install-data", help="Compatibility alias for install-ohlcv")
+    _add_install_ohlcv_arguments(install_data)
 
     backtest = subparsers.add_parser("backtest", help="Run an in-memory portfolio backtest")
     backtest.add_argument("--bot-file", default="my_bot.py", help="Path to a Python bot file or module")
@@ -66,6 +73,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
+    if args.command in {"install-ohlcv", "install-data"}:
+        return _run_install_ohlcv(args)
+
     if args.command == "backtest":
         report = run_backtest(args)
         export_backtest_results(report, output_dir=args.output_dir, export_html=args.export_html)
@@ -82,6 +92,85 @@ def main(argv: list[str] | None = None) -> int:
         return _run_upload(args)
 
     raise SystemExit(f"unknown command: {args.command}")
+
+
+def _add_install_ohlcv_arguments(parser: argparse.ArgumentParser) -> None:
+    symbol_group = parser.add_mutually_exclusive_group(required=True)
+    symbol_group.add_argument(
+        "--symbols",
+        default=None,
+        help="Comma-separated symbols to download, for example BTC/USDT,ETH/USDT",
+    )
+    symbol_group.add_argument("--all-symbols", action="store_true", help="Download all active symbols from the exchange")
+
+    parser.add_argument("--exchange", default="binance", help="CCXT exchange id, for example binance or kraken")
+    parser.add_argument("--market-type", default=None, choices=("spot", "swap", "future"), help="Optional market type filter")
+    parser.add_argument("--timeframe", default="1h", help="Candle timeframe to download, for example 1h or 15m")
+    parser.add_argument("--data-root", default="data", help="Local data root that will contain the ohlcv/ directory")
+    parser.add_argument("--since", default=None, help="Optional start time, such as 2024-01-01 or 1710000000000")
+    parser.add_argument("--until", default=None, help="Optional end time, such as 2024-12-31 or 1715000000000")
+    parser.add_argument("--fill-gaps", action="store_true", help="Search for and backfill missing candles after sync")
+
+
+def _run_install_ohlcv(args: argparse.Namespace) -> int:
+    downloader = ExchangeDataDownloader(exchange_id=args.exchange, market_type=args.market_type)
+    symbols = _resolve_install_symbols(args, downloader)
+    if not symbols:
+        raise SystemExit("No symbols selected. Provide --symbols or --all-symbols.")
+
+    data_root = Path(args.data_root).expanduser().resolve()
+    ohlcv_dir = data_root / "ohlcv"
+    ohlcv_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Downloading OHLCV from {args.exchange} into {ohlcv_dir} ...")
+    print(f"Symbols: {len(symbols)}")
+
+    for index, symbol in enumerate(symbols, start=1):
+        clean_symbol = downloader.get_clean_symbol(symbol)
+        target_path = ohlcv_dir / f"{clean_symbol}.parquet"
+        existing = _load_existing_ohlcv(target_path)
+        existing_frame = existing if existing is not None and not existing.empty else None
+
+        print(f"[{index}/{len(symbols)}] Syncing {symbol} -> {target_path.name}")
+        frame = downloader.sync_ohlcv(
+            symbol,
+            existing_df=existing_frame,
+            timeframe=args.timeframe,
+            since=args.since,
+            until=args.until,
+            discover_start=existing_frame is None and args.since is None,
+            fill_gaps=args.fill_gaps,
+        )
+
+        if frame is None or frame.empty:
+            print(f"  No data fetched for {symbol}")
+            continue
+
+        frame.to_parquet(target_path, index=False)
+        start_ts = frame["timestamp"].min()
+        end_ts = frame["timestamp"].max()
+        print(f"  Saved {len(frame)} rows ({start_ts} -> {end_ts})")
+
+    return 0
+
+
+def _resolve_install_symbols(args: argparse.Namespace, downloader: ExchangeDataDownloader) -> list[str]:
+    if getattr(args, "all_symbols", False):
+        return downloader.list_symbols(market_type=args.market_type)
+
+    raw_symbols = getattr(args, "symbols", None) or ""
+    return [symbol.strip() for symbol in raw_symbols.split(",") if symbol.strip()]
+
+
+def _load_existing_ohlcv(path: Path) -> pd.DataFrame | None:
+    if not path.exists():
+        return None
+
+    try:
+        return pd.read_parquet(path)
+    except Exception:
+        logger.warning("Ignoring unreadable parquet file: %s", path)
+        return None
 
 
 def _run_upload(args: argparse.Namespace) -> int:
