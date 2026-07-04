@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from ..models import SignalAction, SignalPayload
-from .dry_run import DryRunSyncClient
+from .dry_run import DryRunSyncClient, DryRunSyncConfig
 from .telemetry import TelemetryClient
 from .dry_run_store import DryRunClosedTradeSnapshot, DryRunPortfolioSnapshot, DryRunPositionSnapshot, DryRunStateSnapshot, SQLiteDryRunStore
 from .interfaces import PortfolioContext
@@ -26,6 +27,13 @@ class StateSyncer(Protocol):
 class WebSocketTransport(Protocol):
     def send(self, payload: str) -> None:
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class DryRunSyncHandle:
+    tracker: "DryRunStateTracker"
+    state_syncer: "HttpDryRunSyncer"
+    after_signal_applied: Callable[[SignalPayload, PortfolioContext], None]
 
 
 class DryRunStateTracker:
@@ -163,6 +171,29 @@ class HttpDryRunSyncer:
             logger.exception("Dry-run sync failed")
 
 
+def create_dry_run_syncer(
+    config: DryRunSyncConfig,
+    *,
+    store: SQLiteDryRunStore | None = None,
+    session: Any = None,
+    interval: float | None = None,
+) -> DryRunSyncHandle:
+    """Create the dry-run tracker, HTTP syncer, and Runner callback together."""
+
+    client = DryRunSyncClient(config, session=session)
+    tracker = DryRunStateTracker(store or SQLiteDryRunStore(config.sqlite_path))
+    state_syncer = HttpDryRunSyncer(
+        client,
+        tracker,
+        interval=config.sync_interval_seconds if interval is None else interval,
+    )
+    return DryRunSyncHandle(
+        tracker=tracker,
+        state_syncer=state_syncer,
+        after_signal_applied=tracker.on_signal_applied,
+    )
+
+
 class WebSocketDryRunSyncer:
     def __init__(self, transport: WebSocketTransport, tracker: DryRunStateTracker, interval: float = 60.0) -> None:
         self._transport = transport
@@ -243,7 +274,9 @@ class NoopTelemetrySyncer:
 __all__ = [
     "StateSyncer",
     "WebSocketTransport",
+    "DryRunSyncHandle",
     "DryRunStateTracker",
+    "create_dry_run_syncer",
     "HttpDryRunSyncer",
     "WebSocketDryRunSyncer",
     "FileSyncer",

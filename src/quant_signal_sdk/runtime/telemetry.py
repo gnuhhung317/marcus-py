@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import json
-import time
 from dataclasses import dataclass
 from typing import Any
 
 import requests
 
-from ..signing import generate_hmac_signature
+from .._http import build_auth_headers, canonical_json_text, response_json_or_empty
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,25 +47,20 @@ class TelemetryClient:
             data=self._body(payload),
             timeout=self._config.timeout_seconds,
         )
-        response.raise_for_status()
-        return response.json() if response.content else {}
+        return response_json_or_empty(response)
 
     def _url(self, suffix: str) -> str:
         return f"{self._config.base_url.rstrip('/')}/api/v1/bots/{self._config.bot_id}{suffix}"
 
     def _headers(self, payload: dict[str, Any]) -> dict[str, str]:
-        timestamp = str(int(time.time() * 1000))
-        headers = {
-            "Content-Type": "application/json",
-            "X-Bot-Api-Key": self._config.api_key,
-            "X-Timestamp": timestamp,
-        }
-        if self._config.signer_secret:
-            headers["X-Signature"] = generate_hmac_signature(payload, self._config.signer_secret, timestamp=timestamp)
-        return headers
+        return build_auth_headers(
+            api_key=self._config.api_key,
+            payload=payload,
+            signer_secret=self._config.signer_secret,
+        )
 
     def _body(self, payload: dict[str, Any]) -> str:
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return canonical_json_text(payload)
 
 
 BotTelemetryClient = TelemetryClient

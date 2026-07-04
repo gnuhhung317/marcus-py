@@ -1,6 +1,6 @@
 ﻿# Quant Signal SDK
 
-This repository now contains only the developer SDK package: `quant_signal_sdk`.
+This repository now contains the developer SDK package: `quant_signal_sdk`.
 
 > 📖 **New:** See [DEVELOPER.md](DEVELOPER.md) for a complete step-by-step guide — writing strategies, backtesting with real data, uploading results to Marcus backend, and running live bots with telemetry.
 
@@ -12,30 +12,33 @@ Local executor client code has been moved to `local-executor-client` in the work
 - Optional HMAC SHA-256 payload signing helper (`generate_hmac_signature`).
 - High-level API client (`QuantSignalClient`) for authenticated signal submission.
 - Minimal `BaseStrategy` contract for strategy inheritance.
-- Exchange-agnostic CCXT market-data downloader for OHLCV, symbol discovery, and funding history.
-- In-memory portfolio backtest runner with OHLCV replay and execution-policy enforcement.
-- Backtest publishing client for uploading completed `BacktestReport` objects to the backend.
+- Optional exchange-agnostic CCXT market-data downloader for OHLCV, symbol discovery, and funding history.
+- Optional in-memory portfolio backtest runner with OHLCV replay and execution-policy enforcement.
+- Optional backtest publishing client for uploading completed `BacktestReport` objects to the backend.
 - Pluggable dry-run sync helpers (`StateSyncer`, `HttpDryRunSyncer`, `WebSocketDryRunSyncer`, `FileSyncer`).
 - Dedicated operational telemetry client (`TelemetryClient`) separate from dry-run PnL/state sync.
 
 ## Quickstart
 ```python
-from quant_signal_sdk import QuantSignalClient, SignalPayload
+from quant_signal_sdk import MarketType, OrderType, QuantSignalClient, SignalAction, SignalPayload
 
 client = QuantSignalClient(
     base_url="https://api.example.com",
     api_key="your-api-key",
+    default_bot_id="bot_123",
     signer_secret="optional-signing-secret",
 )
 
 signal = SignalPayload(
-    side="LONG",
-    action="OPEN_LONG",
+    action=SignalAction.OPEN_LONG,
     symbol="BTCUSDT",
-    tp=72000,
-    sl=68500,
-    confidence_score=0.84,
-    metadata={"strategy": "trend_v1"},
+    market_type=MarketType.SPOT,
+    order_type=OrderType.MARKET,
+    entry=70000,
+    amount=0.01,
+    stop_loss=68500,
+    take_profit=72000,
+    metadata={"strategy": "trend_v1", "confidence_score": 0.84},
 )
 
 result = client.send_signal(signal)
@@ -50,7 +53,7 @@ Create a `my_bot.py` file that exports a strategy class or `STRATEGY` object wit
 quant-sdk backtest --bot-file my_bot.py --data-csv candles.csv --initial-cash 1000
 ```
 
-The backtest engine replays OHLCV candles, queues signals for the next tick, and prints a simple portfolio summary when the run completes.
+The backtest engine replays OHLCV candles, queues signals for the next tick, and prints a simple portfolio summary when the run completes. The runner is symbol-aware: it keeps a per-symbol quote registry, marks positions from each symbol's latest quote, and only fills orders when the matching symbol has an executable quote.
 
 If your OHLCV data is stored as Parquet (recommended per `GUIDE_DATA.md`), point the CLI at the Parquet file or directory. Example using the dataset layout in `GUIDE_DATA.md`:
 
@@ -61,6 +64,10 @@ python -m quant_signal_sdk.cli backtest --bot-file my_bot.py \
 ```
 
 The CLI accepts either `--data-csv` (legacy) or `--data-parquet` (preferred). When a directory is passed to `--data-parquet` the first `*.parquet` file is used.
+
+Composite backtests are supported in v1, but executable composite legs must provide leg-specific OHLC such as `spot_open/high/low/close` and `futures_open/high/low/close`. A composite payload that only carries `*_close` values is sufficient for marking equity, but not for executing market or limit orders on that leg. Upstream loaders must keep composite timestamps aligned to avoid look-ahead bias.
+
+The v1 portfolio engine uses one shared cash ledger across spot, future, and margin positions. That is intentional for sizing and cross-asset accounting, but it does not simulate isolated-margin liquidation buckets or wallet transfers.
 
 ### Publish backtest results
 
@@ -79,7 +86,32 @@ The upload is batch-only. Equity history and closed trades are stored as `HISTOR
 
 ### Dry-run and telemetry
 
-For live paper trading, build a `StateSyncer` around `DryRunSyncClient` and `DryRunStateTracker`. This keeps the state sync loop outside `Runner` so the transport can be REST, WebSocket, or file-based without changing core strategy execution.
+For live paper trading, use the factory so the runner receives both the state syncer and the callback that persists applied signals:
+
+```python
+from quant_signal_sdk.runtime.dry_run import DryRunSyncConfig
+from quant_signal_sdk.runtime.runner import Runner
+from quant_signal_sdk.runtime.sync import create_dry_run_syncer
+
+dry_run = create_dry_run_syncer(
+    DryRunSyncConfig(
+        base_url="https://api.example.com",
+        bot_id="bot_123",
+        api_key="your-bot-api-key",
+        signer_secret="optional-signing-secret",
+    )
+)
+
+runner = Runner(
+    feed,
+    strategy,
+    dispatcher,
+    after_signal_applied=dry_run.after_signal_applied,
+    state_syncer=dry_run.state_syncer,
+)
+```
+
+Directly composing `DryRunSyncClient`, `DryRunStateTracker`, and `HttpDryRunSyncer` is still supported for advanced usage. The factory is preferred because it avoids syncing empty position state.
 
 Operational telemetry is separate. Use `TelemetryClient` for metrics like CPU, latency, and heartbeat-style signals instead of reusing the dry-run transport.
 
@@ -99,22 +131,28 @@ Install with SDK development tools:
 pip install -e .[dev]
 ```
 
+Install optional backtest helpers:
+
+```bash
+pip install -e .[backtest]
+```
+
 Install optional market-data helpers:
 
 ```bash
 pip install -e .[market-data]
 ```
 
-Install both dev and market-data extras together:
+Install dev, backtest, and market-data extras together:
 
 ```bash
-pip install -e .[dev,market-data]
+pip install -e .[dev,backtest,market-data]
 ```
 
 For multi-exchange downloads, use the generic downloader:
 
 ```python
-from quant_signal_sdk import ExchangeDataDownloader
+from quant_signal_sdk.ccxt_client import ExchangeDataDownloader
 
 downloader = ExchangeDataDownloader(exchange_id="binance", market_type="swap")
 frame = downloader.fetch_ohlcv_frame("BTC/USDT:USDT", timeframe="1h", since="2024-01-01", paginate=True)
@@ -136,7 +174,7 @@ pip install quant-signal-sdk
 
 ## Tests
 ```bash
-python -m unittest discover -s tests -v
+PYTHONPATH=src python -m pytest -q
 ```
 
 ## Release

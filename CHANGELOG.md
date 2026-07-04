@@ -22,6 +22,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Prepared the SDK for `0.2.0` by slimming the root public API, moving heavy dependencies into extras, and centralizing HTTP auth helpers.
+- Updated dry-run REST wiring to prefer `create_dry_run_syncer(...)`, which returns the state syncer and runner callback together.
 
 ## [0.1.0] - 2026-04-24
 
@@ -36,4 +39,4 @@
 - CI workflow Python version matrix quoting.
 
 ### Tested
-- `python -m unittest discover -s tests -v` passed successfully.
+- `PYTHONPATH=src python -m pytest -q` is the source-tree test command.

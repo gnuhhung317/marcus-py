@@ -11,8 +11,8 @@
 |----------|-------|
 | Stack | Python 3.11+, asyncio, Pydantic, WebSocket |
 | Package | `quant_signal_sdk` (published to PyPI) |
-| Install | `pip install -e .[dev,market-data]` |
-| Test | `python -m unittest discover -s tests -v` (from `bot-framework-python/` dir) |
+| Install | `pip install -e .[dev,backtest,market-data]` |
+| Test | `PYTHONPATH=src python -m pytest -q` (from `bot-framework-python/` dir) |
 | Scope | Developer-side SDK (NOT executor runtime) |
 
 ### ⚠️ Scope Clarification
@@ -73,22 +73,23 @@ bot-framework-python/
 ## Canonical Bot Setup
 
 ```python
-from signal_marketplace import Bot, Signal
+from quant_signal_sdk import BaseStrategy, MarketType, OrderType, SignalAction, SignalPayload
 
-class MyTrendBot(Bot):
-    def on_market_data(self, tick):
-        if self.detect_uptrend(tick):
-            return Signal.long(
+class MyTrendBot(BaseStrategy):
+    def on_event(self, event, context):
+        if self.detect_uptrend(event.payload):
+            return [SignalPayload(
+                action=SignalAction.OPEN_LONG,
                 symbol="BTCUSDT",
-                confidence=0.85,
-                tp_sl=DynamicTPSL(atr_multiplier=2.5)
-            )
+                market_type=MarketType.SPOT,
+                order_type=OrderType.MARKET,
+                amount=0.01,
+                metadata={"confidence": 0.85},
+            )]
+        return []
 
     def detect_uptrend(self, tick):
-        return tick.sma_20 > tick.sma_50
-
-if __name__ == "__main__":
-    MyTrendBot().run(api_key=os.getenv("DEV_API_KEY"))
+        return tick["sma_20"] > tick["sma_50"]
 ```
 
 ---
@@ -127,9 +128,9 @@ if __name__ == "__main__":
 
 ## Important Gotchas
 
-1. **Test runner**: VS Code `runTests` tool may return "No tests found" for this unittest layout. Always use `python -m unittest discover -s tests -v` from the `bot-framework-python/` directory.
+1. **Test runner**: Use `PYTHONPATH=src python -m pytest -q` from the `bot-framework-python/` directory so tests run against the working tree.
 
-2. **Package install locally**: `pip install -e .[dev,market-data]`
+2. **Package install locally**: `pip install -e .[dev,backtest,market-data]`
 
 3. **Install from GitHub**: Use `subdirectory=bot-framework-python` URL for monorepo installs.
 
@@ -140,7 +141,7 @@ if __name__ == "__main__":
 ## Bot Lifecycle Pipeline
 
 1. **Historical backtest**: `PortfolioBacktestRunner` generates a `BacktestReport`; `BacktestUploadClient` uploads it to `POST /api/v1/bots/{botId}/backtest-results`.
-2. **Live dry-run**: `Runner` delegates portfolio sync to `StateSyncer` implementations. `HttpDryRunSyncer` is the default REST transport, with `WebSocketDryRunSyncer` and `FileSyncer` available.
+2. **Live dry-run**: `Runner` delegates portfolio sync to `StateSyncer` implementations. Prefer `create_dry_run_syncer(...)` for REST dry-run wiring so the persistence callback and HTTP syncer are configured together.
 3. **Operational telemetry**: `TelemetryClient` is reserved for CPU, latency, heartbeat, and similar non-PnL metrics. `BotTelemetryClient` remains a compatibility alias.
 4. **Separation rule**: Dry-run state and telemetry are different payloads. Keep their clients and transports separate when adding new runtime features.
 

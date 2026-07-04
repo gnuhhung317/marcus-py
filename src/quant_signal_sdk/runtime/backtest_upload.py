@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Any
 
 import requests
 
-from ..signing import canonical_json_bytes, generate_hmac_signature_bytes, gzip_bytes
+from .._http import build_auth_headers, response_json_or_empty
+from ..signing import canonical_json_bytes, gzip_bytes
 from .backtest import BacktestReport
 
 
@@ -28,16 +28,14 @@ class BacktestUploadClient:
 
     def push_backtest_report(self, report: BacktestReport) -> dict[str, Any]:
         payload = self._payload(report)
-        timestamp = str(int(time.time() * 1000))
         body = self._body(payload)
         response = self._session.post(
             self._url("/backtest-results"),
-            headers=self._headers(payload, timestamp=timestamp, body=body),
+            headers=self._headers(body=body),
             data=body,
             timeout=self._config.timeout_seconds,
         )
-        response.raise_for_status()
-        return response.json() if response.content else {}
+        return response_json_or_empty(response)
 
     def _payload(self, report: BacktestReport) -> dict[str, Any]:
         equity_history = self._dedupe_equity_history(report.equity_history)
@@ -78,16 +76,13 @@ class BacktestUploadClient:
     def _url(self, suffix: str) -> str:
         return f"{self._config.base_url.rstrip('/')}/api/v1/bots/{self._config.bot_id}{suffix}"
 
-    def _headers(self, payload: dict[str, Any], *, timestamp: str, body: bytes) -> dict[str, str]:
-        headers = {
-            "Content-Type": "application/json",
-            "Content-Encoding": "gzip",
-            "X-Bot-Api-Key": self._config.api_key,
-            "X-Timestamp": timestamp,
-        }
-        if self._config.signer_secret:
-            headers["X-Signature"] = generate_hmac_signature_bytes(body, self._config.signer_secret, timestamp=timestamp)
-        return headers
+    def _headers(self, *, body: bytes) -> dict[str, str]:
+        return build_auth_headers(
+            api_key=self._config.api_key,
+            body=body,
+            signer_secret=self._config.signer_secret,
+            content_encoding="gzip",
+        )
 
     def _body(self, payload: dict[str, Any]) -> bytes:
         return gzip_bytes(canonical_json_bytes(payload))

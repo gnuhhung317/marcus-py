@@ -3,11 +3,12 @@ from __future__ import annotations
 
 Includes a simple SMA crossover strategy that emits OPEN_LONG/OPEN_SHORT signals.
 """
+from datetime import datetime, timezone
 import uuid
 from typing import List, Optional
 from statistics import mean
 
-from .ccxt_client import close_prices_from_ohlcv
+from .runtime.interfaces import BaseStrategy
 
 
 class SimpleSmaStrategy:
@@ -40,20 +41,9 @@ class SimpleSmaStrategy:
             "entry": entry,
             "stopLoss": round(entry * 0.99, 2),
             "takeProfit": round(entry * 1.02, 2),
-            "generatedTimestamp": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "generatedTimestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "metadata": {"strategy": "sma", "short": self.short_window, "long": self.long_window},
         }
 
-from abc import ABC, abstractmethod
-from typing import Any, Mapping
 
-from .models import SignalPayload
-
-
-class BaseStrategy(ABC):
-    @abstractmethod
-    def on_market_data(self, tick: Mapping[str, Any]) -> SignalPayload | None:
-        """Return a signal when conditions are met, otherwise None."""
-
-    async def on_market_data_async(self, tick: Mapping[str, Any]) -> SignalPayload | None:
-        return self.on_market_data(tick)
+__all__ = ["BaseStrategy", "SimpleSmaStrategy"]

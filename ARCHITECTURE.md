@@ -1,12 +1,14 @@
 # ARCHITECTURE.md - Marcus Trading Bot Framework
 
-## 1. Mental Model: The "Plug-and-Play" Architecture
-This repository is designed as a **Hexagonal Architecture** (Ports and Adapters) for algorithmic trading. The core logic (Strategy) is isolated from external concerns (Data Feeds and Signal Delivery).
+## 1. Mental Model: Layered SDK Architecture
+This repository is designed as a layered developer SDK. The package root exposes only the core signal contract, signing helper, HTTP client, and runtime interfaces. Backtesting, market data, and ML/research helpers live in optional submodules and extras.
 
 ### Core Domains
-- **Signal Engine**: Standardizes trading intent via `SignalPayload`.
-- **Runtime Engine**: Manages state (`PortfolioContext`) and orchestration via `Runner`.
-- **Connectors**: External interfaces for REST APIs (`QuantSignalClient`) and Exchanges (`CCXTClient`).
+- **Core Signal SDK**: Standardizes trading intent via `SignalPayload` and submits it with `QuantSignalClient`.
+- **Runtime Engine**: Manages dry-run state (`PortfolioContext`) and orchestration via `Runner`.
+- **Backtest Layer**: Provides `PortfolioBacktestRunner` and report upload helpers behind optional Pandas-backed functionality.
+- **Market Data Layer**: Provides CCXT-backed downloaders through the `market-data` extra.
+- **ML/Research Layer**: Provides ranker and funding pipeline utilities through the `ml` extra.
 
 ---
 
@@ -19,7 +21,7 @@ The most important entity in this system is the **`SignalPayload`**. Its lifecyc
     - `SignalTranslator` validates timeframe integrity (checks for data gaps).
     - `RiskManager` (optional) calculates SL/TP and validates position sizing.
 4.  **Egress (Dispatch)**: 
-    - **Backtest**: Handled by `PortfolioBacktestRunner` which matches orders against subsequent candles.
+    - **Backtest**: Handled by `PortfolioBacktestRunner`, which keeps a symbol-aware quote registry, matches orders only against the relevant asset's subsequent quote updates, and supports both flat and composite event shapes.
     - **Live**: `QuantSignalClient` signs the payload (HMAC-SHA256) and sends it via REST to the backend.
 
 ## 2.5 Dual Lifecycle Publishing
@@ -30,7 +32,7 @@ The SDK now treats bot history as two separate pipelines:
 2.  **Live dry-run**: `Runner` delegates state persistence and sync to a pluggable `StateSyncer` implementation. `HttpDryRunSyncer` is the default REST transport, but `WebSocketDryRunSyncer` and `FileSyncer` are also available.
 3.  **Operational telemetry**: `TelemetryClient` is reserved for non-PnL metrics such as latency, CPU, and heartbeats.
 
-This split keeps transport concerns out of the core `Runner` loop and lets the backend merge historical and out-of-sample data later.
+This split keeps transport concerns out of the core `Runner` loop and lets the backend merge historical and out-of-sample data later. `Runner` local position state should be treated as dry-run state, not confirmed exchange execution truth.
 
 ---
 
@@ -38,6 +40,7 @@ This split keeps transport concerns out of the core `Runner` loop and lets the b
 - **Input Protocols**:
     - **Live**: Typically WebSocket or REST (via `BaseFeed` implementations).
     - **Backtest**: CSV/DataFrame via `OhlcvReplayFeed`.
+      Flat events use root OHLC plus `symbol`; composite events require leg-specific OHLC for any leg that should be executable.
 - **Output Contracts**:
     - **REST API**: JSON-over-HTTP. Authenticated via `X-Bot-Api-Key` and `X-Signature` (HMAC).
     - **Schema**: Strictly enforced by Pydantic models in `models.py`.
@@ -60,9 +63,9 @@ This split keeps transport concerns out of the core `Runner` loop and lets the b
     - *Status*: Dry-run persistence now lives outside `Runner` via `DryRunStateTracker`; a more distributed store can be introduced without changing the loop itself.
 
 ### Coupling
-- **Network Library**: The `NetworkClient` is tightly coupled to the `requests` library. 
-    - *Status*: Acceptable for now, but a protocol-based abstraction is already in place to allow swapping for `httpx` or `aiohttp` in the future.
-- **CCXT Dependency**: CCXT is handled as an optional "extra", which is a good design choice to keep the core SDK lightweight.
+- **Network Library**: The SDK uses `requests` underneath `NetworkClient`.
+    - *Status*: Authentication headers, canonical JSON, HMAC signing, and empty-response handling are centralized so endpoint clients do not drift.
+- **CCXT Dependency**: CCXT is handled as an optional `market-data` extra so the core SDK remains lightweight.
 
 ---
 
@@ -70,6 +73,7 @@ This split keeps transport concerns out of the core `Runner` loop and lets the b
 | Module | Responsibility |
 | :--- | :--- |
 | `models.py` | Defines the "Contract" (Schemas & Enums). |
+| `_http.py` | Shared HTTP authentication, canonical body, and response helpers. |
 | `translator.py` | Data integrity gatekeeper and payload serializer. |
 | `runner.py` | The main loop orchestrating Feed -> Strategy -> Dispatcher. |
 | `backtest.py` | High-fidelity local exchange simulation. |

@@ -160,9 +160,11 @@ Open `backtest_results/btc_trend/tearsheet.html` in your browser to see equity c
 ### Key concepts
 
 - `PortfolioBacktestRunner` tracks positions per `market_type:symbol` key
-- Each `MarketEvent.payload` must include a `symbol` field
-- Strategy reads `event.payload.get("symbol")` to identify which asset this event belongs to
+- Flat per-symbol events use `symbol` plus root `open/high/low/close`
+- Composite events are also supported when each executable leg provides `*_symbol` and matching `*_open/high/low/close`
+- Strategy reads `event.payload.get("symbol")` for flat events, or leg-specific fields such as `spot_symbol` / `futures_symbol` for composite snapshots
 - `PortfolioContext.positions` holds all open positions across symbols
+- The engine shares one cash ledger across all assets in v1; isolated-margin liquidation behavior is not simulated
 
 ### Write a multi-symbol strategy
 
@@ -389,15 +391,17 @@ POSTs to `POST /api/v1/bots/{id}/telemetry` under the hood. If the runner stops 
 Dry-run sync tracks live paper-trading positions on the backend. It is **separate** from telemetry and from the runner. Three transports available:
 
 ```python
-from quant_signal_sdk.runtime.dry_run import DryRunSyncClient, DryRunSyncConfig
-from quant_signal_sdk.runtime.sync import HttpDryRunSyncer, WebSocketDryRunSyncer, FileSyncer
+from quant_signal_sdk.runtime.dry_run import DryRunSyncConfig
+from quant_signal_sdk.runtime.sync import FileSyncer, WebSocketDryRunSyncer, create_dry_run_syncer
 
 # Option 1: REST-based sync
-syncer = HttpDryRunSyncer(DryRunSyncClient(DryRunSyncConfig(
-    base_url="https://marcus-api.tromoi.xyz",
-    bot_id="bot_abc123",
-    api_key="sk_...",
-)))
+dry_run = create_dry_run_syncer(
+    DryRunSyncConfig(
+        base_url="https://marcus-api.tromoi.xyz",
+        bot_id="bot_abc123",
+        api_key="sk_...",
+    )
+)
 
 # Option 2: WebSocket-based sync
 syncer = WebSocketDryRunSyncer(
@@ -413,13 +417,14 @@ runner = Runner(
     feed=feed,
     strategy=MyBot(),
     dispatcher=dispatcher,
-    state_syncer=syncer,                 # syncs ledger context after each signal
+    after_signal_applied=dry_run.after_signal_applied,
+    state_syncer=dry_run.state_syncer,   # syncs ledger context after each signal
     telemetry_syncer=telemetry_syncer,   # syncs operational status periodically
 )
 runner.run()
 ```
 
-The `StateSyncer` contract keeps state sync outside `Runner` so you can swap REST ↔ WebSocket ↔ file without changing strategy code.
+The `StateSyncer` contract keeps state sync outside `Runner` so you can swap REST ↔ WebSocket ↔ file without changing strategy code. For REST dry-run sync, prefer `create_dry_run_syncer(...)` so the runner receives the persistence callback and does not sync empty position state.
 
 ---
 
@@ -491,9 +496,9 @@ runner = PortfolioBacktestRunner(
 
 | Symptom | Cause | Solution |
 |---------|-------|----------|
-| No fills in backtest | Data has no OHLCV columns | Ensure payload has `open`, `high`, `low`, `close` |
+| No fills in backtest | Data has no executable OHLC columns | For flat events provide `open`, `high`, `low`, `close`; for composite events provide leg-specific `*_open`, `*_high`, `*_low`, `*_close` |
 | All orders canceled | `cancel_after` is set | Check `ExecutionPolicies.cancel_order_after` |
 | Negative equity | Fees + slippage exceed capital | Reduce `taker_fee_rate` or `slippage_rate` |
 | Upload returns 401 | Invalid API key | Verify `bot_id` and `api_key` from provisioner |
 | Telemetry not visible | Wrong bot_id | Check `bot_id` matches what was provisioned |
-| Multi-symbol not working | Missing `symbol` in payload | Ensure `event.payload` has a `symbol` field |
+| Multi-symbol not working | Event shape does not identify executable legs | For flat events include `symbol`; for composite events include `*_symbol` plus matching leg-specific OHLC |

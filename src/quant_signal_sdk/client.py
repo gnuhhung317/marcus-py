@@ -1,12 +1,11 @@
 from datetime import datetime, timezone
-import time
 import threading
 from uuid import uuid4
 from typing import Any, Mapping
 
+from ._http import build_auth_headers, response_json_or_empty
 from .models import SignalPayload
 from .network import NetworkClient, NetworkClientProtocol
-from .signing import generate_hmac_signature
 
 
 class QuantSignalClient:
@@ -69,27 +68,7 @@ class QuantSignalClient:
         return self.send_payload(payload)
 
     def send_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        json_payload = dict(payload)
-        if "signalId" not in json_payload and "signal_id" not in json_payload:
-            json_payload["signalId"] = str(uuid4())
-        elif "signal_id" in json_payload and "signalId" not in json_payload:
-            json_payload["signalId"] = json_payload.pop("signal_id")
-
-        if "botId" not in json_payload and "bot_id" not in json_payload:
-            if self._default_bot_id:
-                json_payload["botId"] = self._default_bot_id
-        elif "bot_id" in json_payload and "botId" not in json_payload:
-            json_payload["botId"] = json_payload.pop("bot_id")
-
-        if "generatedTimestamp" not in json_payload and "generated_timestamp" not in json_payload:
-            json_payload["generatedTimestamp"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        elif "generated_timestamp" in json_payload and "generatedTimestamp" not in json_payload:
-            ts_val = json_payload.pop("generated_timestamp")
-            if isinstance(ts_val, datetime):
-                json_payload["generatedTimestamp"] = ts_val.isoformat().replace("+00:00", "Z")
-            else:
-                json_payload["generatedTimestamp"] = str(ts_val)
-
+        json_payload = self._prepare_signal_payload(payload)
         headers = self._build_headers(json_payload)
         response = self._network_client.post_json(
             url=self._build_url(),
@@ -97,65 +76,36 @@ class QuantSignalClient:
             json_body=json_payload,
             timeout_seconds=self._timeout_seconds,
         )
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        return response.json()
+        return response_json_or_empty(response)
 
     def _build_url(self) -> str:
         return f"{self._base_url}{self._endpoint_path}"
 
     def _build_headers(self, payload: Mapping[str, Any]) -> dict[str, str]:
-        timestamp = str(int(time.time() * 1000))
-        headers = {
-            "Content-Type": "application/json",
-            self._bot_api_key_header: self._api_key,
-            "X-Timestamp": timestamp,
-        }
-        if self._signer_secret:
-            headers[self._signature_header] = generate_hmac_signature(payload, self._signer_secret, timestamp=timestamp)
-        return headers
+        return build_auth_headers(
+            api_key=self._api_key,
+            payload=payload,
+            signer_secret=self._signer_secret,
+            bot_api_key_header=self._bot_api_key_header,
+            signature_header=self._signature_header,
+        )
 
     def send_payload_with_bot_key(self, payload: Mapping[str, Any], bot_api_key: str, timeout_seconds: float | None = None) -> dict[str, Any]:
-        json_payload = dict(payload)
-        if "signalId" not in json_payload and "signal_id" not in json_payload:
-            json_payload["signalId"] = str(uuid4())
-        elif "signal_id" in json_payload and "signalId" not in json_payload:
-            json_payload["signalId"] = json_payload.pop("signal_id")
-
-        if "botId" not in json_payload and "bot_id" not in json_payload:
-            if self._default_bot_id:
-                json_payload["botId"] = self._default_bot_id
-        elif "bot_id" in json_payload and "botId" not in json_payload:
-            json_payload["botId"] = json_payload.pop("bot_id")
-
-        if "generatedTimestamp" not in json_payload and "generated_timestamp" not in json_payload:
-            json_payload["generatedTimestamp"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        elif "generated_timestamp" in json_payload and "generatedTimestamp" not in json_payload:
-            ts_val = json_payload.pop("generated_timestamp")
-            if isinstance(ts_val, datetime):
-                json_payload["generatedTimestamp"] = ts_val.isoformat().replace("+00:00", "Z")
-            else:
-                json_payload["generatedTimestamp"] = str(ts_val)
-
-        timestamp = str(int(time.time() * 1000))
-        headers = {
-            "Content-Type": "application/json",
-            self._bot_api_key_header: bot_api_key,
-            "X-Timestamp": timestamp,
-        }
-        if self._signer_secret:
-            headers[self._signature_header] = generate_hmac_signature(json_payload, self._signer_secret, timestamp=timestamp)
+        json_payload = self._prepare_signal_payload(payload)
+        headers = build_auth_headers(
+            api_key=bot_api_key,
+            payload=json_payload,
+            signer_secret=self._signer_secret,
+            bot_api_key_header=self._bot_api_key_header,
+            signature_header=self._signature_header,
+        )
         response = self._network_client.post_json(
             url=self._build_url(),
             headers=headers,
             json_body=json_payload,
             timeout_seconds=timeout_seconds or self._timeout_seconds,
         )
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        return response.json()
+        return response_json_or_empty(response)
 
     def register_bot(self, bot_payload: Mapping[str, Any], auth_token: str | None = None, bot_api_key: str | None = None) -> dict[str, Any]:
         """Register a bot via POST /api/v1/bots. Sends either Authorization or bot API key header when provided."""
@@ -172,10 +122,7 @@ class QuantSignalClient:
             json_body=json_payload,
             timeout_seconds=self._timeout_seconds,
         )
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        return response.json()
+        return response_json_or_empty(response)
 
     def send_heartbeat(self, bot_id: str | None = None, bot_api_key: str | None = None) -> dict[str, Any]:
         """Send a heartbeat to the server for a specific bot."""
@@ -188,16 +135,14 @@ class QuantSignalClient:
             raise ValueError("bot_api_key is required or an api_key must be configured")
 
         url = f"{self._base_url}/api/v1/bots/{target_bot_id}/heartbeat"
-        
-        timestamp = str(int(time.time() * 1000))
-        headers = {
-            "Content-Type": "application/json",
-            self._bot_api_key_header: target_api_key,
-            "X-Timestamp": timestamp,
-        }
 
-        if self._signer_secret:
-            headers[self._signature_header] = generate_hmac_signature({}, self._signer_secret, timestamp=timestamp)
+        headers = build_auth_headers(
+            api_key=target_api_key,
+            payload={},
+            signer_secret=self._signer_secret,
+            bot_api_key_header=self._bot_api_key_header,
+            signature_header=self._signature_header,
+        )
 
         response = self._network_client.post_json(
             url=url,
@@ -205,10 +150,7 @@ class QuantSignalClient:
             json_body={},
             timeout_seconds=self._timeout_seconds,
         )
-        response.raise_for_status()
-        if not response.content:
-            return {}
-        return response.json()
+        return response_json_or_empty(response)
 
     def start_heartbeat_loop(self, interval_seconds: float = 300.0, bot_id: str | None = None, bot_api_key: str | None = None) -> None:
         """Start a background daemon thread that periodically sends heartbeats to the server."""
@@ -248,3 +190,26 @@ class QuantSignalClient:
             self._heartbeat_stop_event.set()
         if hasattr(self, "_heartbeat_thread") and self._heartbeat_thread:
             self._heartbeat_thread.join(timeout=5.0)
+
+    def _prepare_signal_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        json_payload = dict(payload)
+        if "signalId" not in json_payload and "signal_id" not in json_payload:
+            json_payload["signalId"] = str(uuid4())
+        elif "signal_id" in json_payload and "signalId" not in json_payload:
+            json_payload["signalId"] = json_payload.pop("signal_id")
+
+        if "botId" not in json_payload and "bot_id" not in json_payload:
+            if self._default_bot_id:
+                json_payload["botId"] = self._default_bot_id
+        elif "bot_id" in json_payload and "botId" not in json_payload:
+            json_payload["botId"] = json_payload.pop("bot_id")
+
+        if "generatedTimestamp" not in json_payload and "generated_timestamp" not in json_payload:
+            json_payload["generatedTimestamp"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        elif "generated_timestamp" in json_payload and "generatedTimestamp" not in json_payload:
+            ts_val = json_payload.pop("generated_timestamp")
+            if isinstance(ts_val, datetime):
+                json_payload["generatedTimestamp"] = ts_val.isoformat().replace("+00:00", "Z")
+            else:
+                json_payload["generatedTimestamp"] = str(ts_val)
+        return json_payload
