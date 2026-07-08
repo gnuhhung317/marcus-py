@@ -1,1 +1,0 @@
-order_id,signal_id,symbol,market_type,action,order_type,side,quantity,limit_price,status,created_at,eligible_at,cancel_after,filled_quantity,fill_price,fee_paid

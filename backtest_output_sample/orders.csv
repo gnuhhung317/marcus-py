@@ -1,3 +1,0 @@
-order_id,signal_id,symbol,market_type,action,order_type,side,quantity,limit_price,status,created_at,eligible_at,cancel_after,filled_quantity,fill_price,fee_paid
-sample-open_long-1779958800,sample-open_long-1779958800,BTCUSDT,SPOT,OPEN_LONG,MARKET,BUY,1.0,100.0,FILLED,2026-05-28T09:00:00+00:00,2026-05-28T09:15:00+00:00,,1.0,100.0,0.0
-sample-close_long-1779959700,sample-close_long-1779959700,BTCUSDT,SPOT,CLOSE_LONG,MARKET,SELL,1.0,110.0,FILLED,2026-05-28T09:15:00+00:00,2026-05-28T09:30:00+00:00,,1.0,110.0,0.0

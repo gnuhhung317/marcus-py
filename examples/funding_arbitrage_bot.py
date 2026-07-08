@@ -130,12 +130,18 @@ def build_arbitrage_fetcher(
                     "timestamp": datetime.now(timezone.utc),
                     "spot_symbol": spot_symbol,
                     "futures_symbol": futures_symbol,
+                    "spot_open": float(latest_spot["open"]),
+                    "spot_high": float(latest_spot["high"]),
+                    "spot_low": float(latest_spot["low"]),
+                    "spot_close": float(latest_spot["close"]),
+                    "futures_open": float(latest_futures["open"]),
+                    "futures_high": float(latest_futures["high"]),
+                    "futures_low": float(latest_futures["low"]),
+                    "futures_close": float(latest_futures["close"]),
                     "open": float(latest_futures["open"]),
                     "high": float(latest_futures["high"]),
                     "low": float(latest_futures["low"]),
                     "close": float(latest_futures["close"]),
-                    "spot_close": float(latest_spot["close"]),
-                    "futures_close": float(latest_futures["close"]),
                     "funding_rate": funding_rate,
                     "volume": float(latest_futures["volume"]),
                 }
@@ -359,8 +365,8 @@ def _build_live_runner(args: argparse.Namespace) -> Runner:
     strategy = _build_strategy(args)
     fetcher = build_arbitrage_fetcher(
         exchange_id=args.exchange,
-        spot_symbol=args.symbol,
-        futures_symbol=args.futures_symbol or f"{args.symbol}:USDT",
+        spot_symbol=args.spot_symbol,
+        futures_symbol=args.futures_symbol or f"{args.spot_symbol}:USDT",
         timeframe=args.timeframe,
     )
     feed = ScheduledRESTFeed(trigger=CronTrigger(args.schedule_timeframe), fetcher=fetcher)

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from quant_signal_sdk.cli import export_backtest_results
 from quant_signal_sdk.models import MarketType, OrderType, SignalAction, SignalPayload
-from quant_signal_sdk.runtime.backtest import BacktestConfig, PortfolioBacktestRunner
+from quant_signal_sdk.runtime.backtest import BacktestConfig, BacktestMetrics, PortfolioBacktestRunner
 from quant_signal_sdk.runtime.interfaces import BaseFeed, BaseStrategy, MarketEvent, PortfolioContext
 
 
@@ -64,4 +64,6 @@ def test_export_backtest_results_writes_expected_files(tmp_path) -> None:
     metrics = json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))
     assert "max_drawdown" in metrics
     assert "profit_factor" in metrics
+    assert "clamped_orders" in metrics
     assert metrics["final_equity"] >= 0
+    assert BacktestMetrics(**metrics).clamped_orders == metrics["clamped_orders"]

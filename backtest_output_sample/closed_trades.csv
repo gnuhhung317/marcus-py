@@ -1,2 +1,0 @@
-symbol,market_type,side,entry_timestamp,exit_timestamp,quantity,entry_price,exit_price,entry_fees,exit_fees,pnl,duration_seconds
-BTCUSDT,SPOT,LONG,2026-05-28T09:15:00+00:00,2026-05-28T09:30:00+00:00,1.0,100.0,110.0,0.0,0.0,10.0,900.0

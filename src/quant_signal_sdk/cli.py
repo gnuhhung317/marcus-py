@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--maker-fee", type=float, default=0.0, help="Maker fee rate")
     backtest.add_argument("--taker-fee", type=float, default=0.0, help="Taker fee rate")
     backtest.add_argument("--slippage", type=float, default=0.0, help="Slippage rate")
+    backtest.add_argument("--default-max-size-percent", type=float, default=None, help="Optional max size percent clamp")
     backtest.add_argument("--output-dir", default="backtest_output", help="Directory for CSV/HTML exports")
     backtest.add_argument("--export-html", action="store_true", help="Write a static HTML tear sheet")
     backtest.add_argument("--upload-backtest", action="store_true", help="Upload the completed backtest report to Marcus backend")
@@ -309,6 +310,7 @@ def run_backtest(args: argparse.Namespace):
         maker_fee_rate=args.maker_fee,
         taker_fee_rate=args.taker_fee,
         slippage_rate=args.slippage,
+        default_max_size_percent=args.default_max_size_percent,
     )
     runner = PortfolioBacktestRunner(feed=feed, strategy=strategy, config=config)
     return runner.run()
