@@ -17,5 +17,10 @@
   "timeframe": "1h",
   "metadata": {
     "strategy": "contract-fixture"
+  },
+  "policies": {
+    "maxSizePercent": 0.1,
+    "cancelOrderAfter": 1711976400,
+    "closePositionAfter": 1711978200
   }
 }

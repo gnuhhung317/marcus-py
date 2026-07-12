@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Callable
-import re
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -16,6 +15,7 @@ import pandas as pd
 
 from ..client import QuantSignalClient
 from ..models import SignalPayload
+from ..timeframes import parse_timeframe_seconds
 from .interfaces import BaseFeed, MarketEvent
 
 if TYPE_CHECKING:
@@ -57,8 +57,6 @@ class CronTrigger(BaseTrigger):
     such as 1h or 4h execution windows.
     """
 
-    _TIMEFRAME_PATTERN = re.compile(r"^\s*(\d+)\s*([smhdw])\s*$", re.IGNORECASE)
-
     def __init__(self, timeframe: str) -> None:
         self._timeframe = timeframe.strip()
         self._interval_seconds = self._parse_timeframe_seconds(self._timeframe)
@@ -74,15 +72,7 @@ class CronTrigger(BaseTrigger):
 
     @classmethod
     def _parse_timeframe_seconds(cls, timeframe: str) -> int:
-        match = cls._TIMEFRAME_PATTERN.match(timeframe)
-        if match is None:
-            raise ValueError(
-                f"Unsupported timeframe format: {timeframe!r}. Expected values like '15m', '1h', '4h', or '1d'."
-            )
-        quantity = int(match.group(1))
-        unit = match.group(2).lower()
-        unit_seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
-        return quantity * unit_seconds
+        return parse_timeframe_seconds(timeframe)
 
 
 class DataFrameFeed(BaseFeed):

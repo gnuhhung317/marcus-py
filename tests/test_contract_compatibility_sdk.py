@@ -11,7 +11,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from quant_signal_sdk.models import MarginMode, MarketType, OrderType, SignalAction, SignalPayload, SignalStatus
+from quant_signal_sdk.models import ExecutionPolicies, MarginMode, MarketType, OrderType, SignalAction, SignalPayload, SignalStatus
 from quant_signal_sdk.signing import generate_hmac_signature
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "contracts"
@@ -43,9 +43,43 @@ class SdkContractFixtureTest(unittest.TestCase):
             generated_timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
             timeframe="1h",
             metadata={"strategy": "contract-fixture"},
+            policies=ExecutionPolicies(
+                max_size_percent=0.1,
+                cancel_order_after=1711976400,
+                close_position_after=1711978200,
+            ),
         )
 
         self.assertEqual(payload.model_dump(mode="json", by_alias=True, exclude_none=True), expected)
+
+    def test_should_serialize_update_tp_sl_contract_payload(self) -> None:
+        payload = SignalPayload(
+            signal_id="sig-update-001",
+            bot_id="bot-contract-001",
+            action=SignalAction.UPDATE_TP_SL,
+            symbol="BTCUSDT",
+            market_type=MarketType.FUTURE,
+            order_type=OrderType.MARKET,
+            stop_loss=28250,
+            take_profit=30100,
+            generated_timestamp=datetime(2026, 4, 1, 12, 5, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(
+            payload.model_dump(mode="json", by_alias=True, exclude_none=True),
+            {
+                "signalId": "sig-update-001",
+                "botId": "bot-contract-001",
+                "action": "UPDATE_TP_SL",
+                "symbol": "BTCUSDT",
+                "marketType": "FUTURE",
+                "orderType": "MARKET",
+                "stopLoss": 28250.0,
+                "takeProfit": 30100.0,
+                "generatedTimestamp": "2026-04-01T12:05:00Z",
+                "metadata": {},
+            },
+        )
 
     def test_should_match_hmac_signature_vector_fixture(self) -> None:
         vector = _load_fixture("sdk_signature_vector_v1.json")

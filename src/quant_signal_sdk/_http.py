@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Mapping
 from typing import Any
 
-from .signing import generate_hmac_signature, generate_hmac_signature_bytes
-
+from .signing import canonical_json_bytes, sign_bytes, generate_hmac_signature, generate_hmac_signature_bytes
 
 def timestamp_ms() -> str:
     return str(int(time.time() * 1000))
 
-
 def canonical_json_text(payload: Mapping[str, Any]) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-
+    return canonical_json_bytes(payload).decode("utf-8")
 
 def build_auth_headers(
     *,
@@ -42,11 +38,11 @@ def build_auth_headers(
 
     if signer_secret:
         if body is not None:
-            headers[signature_header] = generate_hmac_signature_bytes(body, signer_secret, timestamp=request_timestamp)
+            headers[signature_header] = sign_bytes(body, signer_secret, timestamp=request_timestamp)
         else:
-            headers[signature_header] = generate_hmac_signature(payload or {}, signer_secret, timestamp=request_timestamp)
+            body_bytes = canonical_json_bytes(payload or {})
+            headers[signature_header] = sign_bytes(body_bytes, signer_secret, timestamp=request_timestamp)
     return headers
-
 
 def response_json_or_empty(response: Any) -> dict[str, Any]:
     response.raise_for_status()

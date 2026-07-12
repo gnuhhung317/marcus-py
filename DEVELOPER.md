@@ -44,6 +44,13 @@ pip install -e ".[ml]"
 quant-sdk --help
 ```
 
+## Signal Transport Contract
+
+- Canonical published symbol format is `BTCUSDT`.
+- Supported API actions are `OPEN_LONG`, `OPEN_SHORT`, `CLOSE_LONG`, `CLOSE_SHORT`, and `UPDATE_TP_SL`.
+- Use `ExecutionPolicies` when you need transport-level sizing or deadline controls such as `maxSizePercent`, `cancelOrderAfter`, or `closePositionAfter`.
+- `SignalAction.CLOSE` is compatibility-only and must be translated or rejected before transport dispatch.
+
 ---
 
 ## Pattern 1: Single-symbol Backtest

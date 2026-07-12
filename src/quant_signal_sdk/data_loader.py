@@ -7,6 +7,8 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from .symbols import clean_symbol
+
 
 @dataclass(frozen=True, slots=True)
 class BundleAsset:
@@ -147,7 +149,7 @@ class BundleManifest:
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
-        return symbol.strip().upper()
+        return clean_symbol(symbol)
 
 
 class BundleLoader:
@@ -195,4 +197,4 @@ class BundleLoader:
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
-        return symbol.strip().upper()
+        return clean_symbol(symbol)

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import json
 from typing import Any, Protocol
 
 import requests
 from requests import Response, Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from .signing import canonical_json_bytes
 
 RETRY_STATUS_CODES = (500, 502, 503, 504)
-
 
 class NetworkClientProtocol(Protocol):
     def post_json(
@@ -22,6 +21,15 @@ class NetworkClientProtocol(Protocol):
     ) -> Any:
         ...
 
+    def post_bytes(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        body: bytes,
+        timeout_seconds: float,
+    ) -> Any:
+        ...
 
 class NetworkClient:
     def __init__(
@@ -45,6 +53,21 @@ class NetworkClient:
         self._session.mount("https://", adapter)
         self._session.mount("http://", adapter)
 
+    def post_bytes(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        body: bytes,
+        timeout_seconds: float,
+    ) -> Response:
+        return self._session.post(
+            url,
+            headers=headers,
+            data=body,
+            timeout=timeout_seconds,
+        )
+
     def post_json(
         self,
         *,
@@ -53,10 +76,10 @@ class NetworkClient:
         json_body: dict[str, Any],
         timeout_seconds: float,
     ) -> Response:
-        canonical_body = json.dumps(json_body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        return self._session.post(
-            url,
+        body = canonical_json_bytes(json_body)
+        return self.post_bytes(
+            url=url,
             headers=headers,
-            data=canonical_body,
-            timeout=timeout_seconds,
+            body=body,
+            timeout_seconds=timeout_seconds,
         )

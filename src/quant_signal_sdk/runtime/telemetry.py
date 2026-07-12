@@ -5,7 +5,8 @@ from typing import Any
 
 import requests
 
-from .._http import build_auth_headers, canonical_json_text, response_json_or_empty
+from .._http import build_auth_headers, response_json_or_empty
+from ..signing import canonical_json_bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,10 +42,11 @@ class TelemetryClient:
         if timestamp:
             payload["timestamp"] = timestamp
 
+        body = canonical_json_bytes(payload)
         response = self._session.post(
             self._url("/telemetry"),
-            headers=self._headers(payload),
-            data=self._body(payload),
+            headers=self._headers(body=body),
+            data=body,
             timeout=self._config.timeout_seconds,
         )
         return response_json_or_empty(response)
@@ -52,15 +54,12 @@ class TelemetryClient:
     def _url(self, suffix: str) -> str:
         return f"{self._config.base_url.rstrip('/')}/api/v1/bots/{self._config.bot_id}{suffix}"
 
-    def _headers(self, payload: dict[str, Any]) -> dict[str, str]:
+    def _headers(self, *, body: bytes) -> dict[str, str]:
         return build_auth_headers(
             api_key=self._config.api_key,
-            payload=payload,
+            body=body,
             signer_secret=self._config.signer_secret,
         )
-
-    def _body(self, payload: dict[str, Any]) -> str:
-        return canonical_json_text(payload)
 
 
 BotTelemetryClient = TelemetryClient

@@ -8,6 +8,9 @@ from typing import Any, List
 
 import pandas as pd
 
+from .symbols import normalize_symbol, clean_symbol
+from .timeframes import parse_timeframe_ms
+
 try:
     import ccxt  # type: ignore
 except Exception as exc:  # ImportError or other import-time errors
@@ -15,9 +18,6 @@ except Exception as exc:  # ImportError or other import-time errors
     _CCXT_IMPORT_ERROR = exc
 else:
     _CCXT_IMPORT_ERROR = None
-
-
-_TIMEFRAME_PATTERN = re.compile(r"^\s*(\d+)\s*([smhdw])\s*$", re.IGNORECASE)
 
 
 def _ensure_ccxt() -> Any:
@@ -68,15 +68,7 @@ def _coerce_ms(value: Any | None) -> int | None:
 
 
 def _timeframe_to_ms(timeframe: str) -> int:
-    match = _TIMEFRAME_PATTERN.match(timeframe)
-    if match is None:
-        raise ValueError(
-            f"Unsupported timeframe format: {timeframe!r}. Expected values like '15m', '1h', '4h', or '1d'."
-        )
-    quantity = int(match.group(1))
-    unit = match.group(2).lower()
-    unit_seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
-    return quantity * unit_seconds * 1000
+    return parse_timeframe_ms(timeframe)
 
 
 def _unique_sorted_symbols(symbols: Iterable[str]) -> list[str]:
@@ -126,18 +118,10 @@ class ExchangeDataDownloader:
             time.sleep(float(rate_limit_ms) / 1000.0)
 
     def normalize_symbol(self, symbol: str) -> str:
-        """Return a storage-friendly symbol label.
-
-        Examples:
-            BTC/USDT -> BTCUSDT
-            BTC/USDT:USDT -> BTCUSDT_USDT
-        """
-
-        clean = str(symbol).strip().upper()
-        return clean.replace("/", "").replace("-", "").replace(":", "_")
+        return normalize_symbol(symbol)
 
     def get_clean_symbol(self, symbol: str) -> str:
-        return self.normalize_symbol(symbol)
+        return normalize_symbol(symbol)
 
     def list_symbols(
         self,

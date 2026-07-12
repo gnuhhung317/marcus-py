@@ -35,6 +35,27 @@ class DummyNetworkClient:
         self.calls.append({"url": url, "headers": headers, "json": json_body, "timeout": timeout_seconds})
         return FakeResponse()
 
+    def post_bytes(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        body: bytes,
+        timeout_seconds: float,
+    ) -> FakeResponse:
+        import json
+        json_body = json.loads(body.decode("utf-8")) if body else {}
+        self.calls.append({
+            "url": url,
+            "headers": headers,
+            "json": json_body,
+            "json_body": json_body,
+            "timeout": timeout_seconds,
+            "timeout_seconds": timeout_seconds,
+            "body": body
+        })
+        return FakeResponse()
+
 
 def test_send_payload_with_bot_key_sets_header_and_returns_json():
     net = DummyNetworkClient()

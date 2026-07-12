@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import warnings
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .symbols import validate_and_normalize_symbol
 
 
 class SignalSide(str, Enum):
@@ -18,6 +21,7 @@ class SignalAction(str, Enum):
     CLOSE_LONG = "CLOSE_LONG"
     CLOSE_SHORT = "CLOSE_SHORT"
     CLOSE = "CLOSE"
+    UPDATE_TP_SL = "UPDATE_TP_SL"
 
 
 class MarketType(str, Enum):
@@ -38,12 +42,7 @@ class MarginMode(str, Enum):
 
 class SignalStatus(str, Enum):
     RECEIVED = "RECEIVED"
-    VALIDATED = "VALIDATED"
-    BROADCASTED = "BROADCASTED"
-    DISPATCHED = "DISPATCHED"
     ACKNOWLEDGED = "ACKNOWLEDGED"
-    EXPIRED = "EXPIRED"
-    FAILED_DELIVERY = "FAILED_DELIVERY"
     FAILED = "FAILED"
 
 
@@ -76,7 +75,6 @@ class SignalPayload(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def handle_legacy_fields(cls, data: Any) -> Any:
-        import warnings
         if not isinstance(data, dict):
             return data
 
@@ -123,14 +121,23 @@ class SignalPayload(BaseModel):
 
         return data
 
+    @field_validator("action", mode="before")
+    @classmethod
+    def warn_on_legacy_close_action(cls, value: Any) -> Any:
+        normalized = value.value if isinstance(value, SignalAction) else value
+        if isinstance(normalized, str) and normalized.strip().upper() == SignalAction.CLOSE.value:
+            warnings.warn(
+                "SignalAction.CLOSE is deprecated and compatibility-only. "
+                "Use CLOSE_LONG, CLOSE_SHORT, or UPDATE_TP_SL before transport or runtime execution.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        return value
+
     @field_validator("symbol")
     @classmethod
     def normalize_symbol(cls, value: str) -> str:
-        symbol = value.strip().upper()
-        cleaned = symbol.replace("_", "").replace("-", "")
-        if not cleaned.isalnum():
-            raise ValueError("symbol must contain only letters, numbers, '_' or '-'")
-        return cleaned
+        return validate_and_normalize_symbol(value)
 
 
 class ExecutionPolicies(BaseModel):

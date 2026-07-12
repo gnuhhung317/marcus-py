@@ -6,6 +6,7 @@ from typing import Any
 
 from .interfaces import BaseStrategy, MarketEvent, PortfolioContext
 from .models import MarginMode, MarketType, OrderType, SignalAction, SignalPayload
+from .symbols import normalize_symbol_short
 
 
 @dataclass(slots=True)
@@ -217,4 +218,4 @@ class FundingArbitrageStrategy(BaseStrategy):
         return f"{market_type.value}:{self._normalize_symbol(symbol)}"
 
     def _normalize_symbol(self, symbol: str) -> str:
-        return symbol.replace("/", "").replace("_", "").replace("-", "").split(":")[0].upper()
+        return normalize_symbol_short(symbol)

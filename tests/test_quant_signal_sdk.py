@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -53,6 +54,27 @@ class _FakeNetworkClient:
                 "timeout_seconds": timeout_seconds,
             }
         )
+        return _FakeResponse({"accepted": True})
+
+    def post_bytes(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        body: bytes,
+        timeout_seconds: float,
+    ) -> _FakeResponse:
+        import json
+        json_body = json.loads(body.decode("utf-8")) if body else {}
+        self.calls.append({
+            "url": url,
+            "headers": headers,
+            "json": json_body,
+            "json_body": json_body,
+            "timeout": timeout_seconds,
+            "timeout_seconds": timeout_seconds,
+            "body": body
+        })
         return _FakeResponse({"accepted": True})
 
 
@@ -183,6 +205,58 @@ class QuantSignalClientRequestBuildTest(unittest.TestCase):
         self.assertEqual(call["json_body"]["symbol"], "BTCUSDT")
         self.assertEqual(call["json_body"]["action"], "OPEN_LONG")
         self.assertEqual(call["json_body"]["generatedTimestamp"], "2026-04-01T12:00:00Z")
+
+    def test_should_reject_generic_close_transport_action(self) -> None:
+        fake_network = _FakeNetworkClient()
+        client = QuantSignalClient(
+            base_url="https://api.marcus.test/",
+            api_key="api-key-123",
+            network_client=fake_network,
+        )
+
+        with self.assertRaisesRegex(ValueError, "SignalAction\\.CLOSE"):
+            client.send_payload(
+                {
+                    "signalId": "sig-close-1",
+                    "botId": "bot-1",
+                    "action": "CLOSE",
+                    "symbol": "BTCUSDT",
+                    "marketType": "SPOT",
+                    "orderType": "MARKET",
+                }
+            )
+
+        self.assertEqual(fake_network.calls, [])
+
+    def test_should_keep_legacy_close_enum_but_reject_send_signal_transport(self) -> None:
+        fake_network = _FakeNetworkClient()
+        client = QuantSignalClient(
+            base_url="https://api.marcus.test/",
+            api_key="api-key-123",
+            network_client=fake_network,
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            signal = SignalPayload(
+                signal_id="sig-close-compat-1",
+                bot_id="bot-1",
+                action=SignalAction.CLOSE,
+                symbol="BTCUSDT",
+                market_type=MarketType.SPOT,
+                order_type=OrderType.MARKET,
+                entry=65000,
+                amount=0.01,
+                generated_timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(signal.action, SignalAction.CLOSE)
+        self.assertTrue(any("compatibility-only" in str(item.message) for item in caught))
+
+        with self.assertRaisesRegex(ValueError, "compatibility-only"):
+            client.send_signal(signal)
+
+        self.assertEqual(fake_network.calls, [])
 
 
 if __name__ == "__main__":

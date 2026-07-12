@@ -454,6 +454,48 @@ def test_timeout_sweep_cancels_before_matching() -> None:
     assert report.orders[0].status == "CANCELED"
 
 
+def test_update_tp_sl_updates_existing_position_without_opening_or_closing() -> None:
+    ts1 = datetime(2026, 5, 28, 16, 0, tzinfo=timezone.utc)
+    ts2 = datetime(2026, 5, 28, 16, 15, tzinfo=timezone.utc)
+    ts3 = datetime(2026, 5, 28, 16, 30, tzinfo=timezone.utc)
+    feed = ListFeed(
+        [
+            _event(ts1, 100, 100, 100, 100, symbol="BTCUSDT"),
+            _event(ts2, 105, 105, 105, 105, symbol="BTCUSDT"),
+            _event(ts3, 110, 110, 110, 110, symbol="BTCUSDT"),
+        ]
+    )
+    open_signal = _signal(
+        action=SignalAction.OPEN_LONG,
+        order_type=OrderType.MARKET,
+        entry=100,
+        amount=1,
+        timestamp=ts1,
+    )
+    update_signal = SignalPayload(
+        action=SignalAction.UPDATE_TP_SL,
+        symbol="BTCUSDT",
+        market_type=MarketType.SPOT,
+        order_type=OrderType.MARKET,
+        stop_loss=95,
+        take_profit=120,
+        generated_timestamp=ts2,
+    )
+    strategy = SequenceStrategy([[open_signal], [update_signal], []])
+
+    report = PortfolioBacktestRunner(feed=feed, strategy=strategy, config=BacktestConfig(initial_cash=1000.0)).run()
+
+    assert len(report.orders) == 1
+    assert len(report.fills) == 1
+    position = report.context.positions["SPOT:BTCUSDT"]
+    assert position["side"] == "LONG"
+    assert position["stop_loss"] == 95.0
+    assert position["take_profit"] == 120.0
+    assert position["signal"].action == SignalAction.OPEN_LONG
+    assert position["signal"].stop_loss == 95.0
+    assert position["signal"].take_profit == 120.0
+
+
 def test_close_position_after_forces_close_and_cancels_same_symbol_orders(caplog) -> None:
     ts1 = datetime(2026, 5, 28, 17, 0, tzinfo=timezone.utc)
     ts2 = datetime(2026, 5, 28, 17, 30, tzinfo=timezone.utc)

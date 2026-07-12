@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from ._http import build_auth_headers, response_json_or_empty
 from .models import SignalPayload
 from .network import NetworkClient, NetworkClientProtocol
+from .signing import canonical_json_bytes
 
 
 class QuantSignalClient:
@@ -69,11 +70,12 @@ class QuantSignalClient:
 
     def send_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         json_payload = self._prepare_signal_payload(payload)
-        headers = self._build_headers(json_payload)
-        response = self._network_client.post_json(
+        body = canonical_json_bytes(json_payload)
+        headers = self._build_headers(body)
+        response = self._network_client.post_bytes(
             url=self._build_url(),
             headers=headers,
-            json_body=json_payload,
+            body=body,
             timeout_seconds=self._timeout_seconds,
         )
         return response_json_or_empty(response)
@@ -81,10 +83,10 @@ class QuantSignalClient:
     def _build_url(self) -> str:
         return f"{self._base_url}{self._endpoint_path}"
 
-    def _build_headers(self, payload: Mapping[str, Any]) -> dict[str, str]:
+    def _build_headers(self, body: bytes) -> dict[str, str]:
         return build_auth_headers(
             api_key=self._api_key,
-            payload=payload,
+            body=body,
             signer_secret=self._signer_secret,
             bot_api_key_header=self._bot_api_key_header,
             signature_header=self._signature_header,
@@ -92,17 +94,18 @@ class QuantSignalClient:
 
     def send_payload_with_bot_key(self, payload: Mapping[str, Any], bot_api_key: str, timeout_seconds: float | None = None) -> dict[str, Any]:
         json_payload = self._prepare_signal_payload(payload)
+        body = canonical_json_bytes(json_payload)
         headers = build_auth_headers(
             api_key=bot_api_key,
-            payload=json_payload,
+            body=body,
             signer_secret=self._signer_secret,
             bot_api_key_header=self._bot_api_key_header,
             signature_header=self._signature_header,
         )
-        response = self._network_client.post_json(
+        response = self._network_client.post_bytes(
             url=self._build_url(),
             headers=headers,
-            json_body=json_payload,
+            body=body,
             timeout_seconds=timeout_seconds or self._timeout_seconds,
         )
         return response_json_or_empty(response)
@@ -110,16 +113,17 @@ class QuantSignalClient:
     def register_bot(self, bot_payload: Mapping[str, Any], auth_token: str | None = None, bot_api_key: str | None = None) -> dict[str, Any]:
         """Register a bot via POST /api/v1/bots. Sends either Authorization or bot API key header when provided."""
         json_payload = dict(bot_payload)
+        body = canonical_json_bytes(json_payload)
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if auth_token:
             headers["Authorization"] = f"Bearer {auth_token}"
         if bot_api_key:
             headers[self._bot_api_key_header] = bot_api_key
 
-        response = self._network_client.post_json(
+        response = self._network_client.post_bytes(
             url=f"{self._base_url}/api/v1/bots",
             headers=headers,
-            json_body=json_payload,
+            body=body,
             timeout_seconds=self._timeout_seconds,
         )
         return response_json_or_empty(response)
@@ -135,19 +139,19 @@ class QuantSignalClient:
             raise ValueError("bot_api_key is required or an api_key must be configured")
 
         url = f"{self._base_url}/api/v1/bots/{target_bot_id}/heartbeat"
-
+        body = canonical_json_bytes({})
         headers = build_auth_headers(
             api_key=target_api_key,
-            payload={},
+            body=body,
             signer_secret=self._signer_secret,
             bot_api_key_header=self._bot_api_key_header,
             signature_header=self._signature_header,
         )
 
-        response = self._network_client.post_json(
+        response = self._network_client.post_bytes(
             url=url,
             headers=headers,
-            json_body={},
+            body=body,
             timeout_seconds=self._timeout_seconds,
         )
         return response_json_or_empty(response)
@@ -193,6 +197,7 @@ class QuantSignalClient:
 
     def _prepare_signal_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         json_payload = dict(payload)
+        self._validate_transport_action(json_payload)
         if "signalId" not in json_payload and "signal_id" not in json_payload:
             json_payload["signalId"] = str(uuid4())
         elif "signal_id" in json_payload and "signalId" not in json_payload:
@@ -213,3 +218,14 @@ class QuantSignalClient:
             else:
                 json_payload["generatedTimestamp"] = str(ts_val)
         return json_payload
+
+    def _validate_transport_action(self, payload: Mapping[str, Any]) -> None:
+        action = payload.get("action")
+        if action is None:
+            return
+        normalized_action = getattr(action, "value", action)
+        if str(normalized_action).strip().upper() == "CLOSE":
+            raise ValueError(
+                "SignalAction.CLOSE is compatibility-only and is not part of the backend transport contract. "
+                "Use CLOSE_LONG, CLOSE_SHORT, or UPDATE_TP_SL."
+            )

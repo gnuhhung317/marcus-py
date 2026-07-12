@@ -20,7 +20,7 @@ Local executor client code has been moved to `local-executor-client` in the work
 
 ## Quickstart
 ```python
-from quant_signal_sdk import MarketType, OrderType, QuantSignalClient, SignalAction, SignalPayload
+from quant_signal_sdk import ExecutionPolicies, MarketType, OrderType, QuantSignalClient, SignalAction, SignalPayload
 
 client = QuantSignalClient(
     base_url="https://api.example.com",
@@ -39,11 +39,18 @@ signal = SignalPayload(
     stop_loss=68500,
     take_profit=72000,
     metadata={"strategy": "trend_v1", "confidence_score": 0.84},
+    policies=ExecutionPolicies(max_size_percent=0.1, cancel_order_after=1711976400),
 )
 
 result = client.send_signal(signal)
 print(result)
 ```
+
+Transport contract notes:
+- Canonical published symbol format is `BTCUSDT`.
+- Supported transport actions are `OPEN_LONG`, `OPEN_SHORT`, `CLOSE_LONG`, `CLOSE_SHORT`, and `UPDATE_TP_SL`.
+- `ExecutionPolicies` serializes `maxSizePercent`, `cancelOrderAfter`, and `closePositionAfter` on the wire.
+- `SignalAction.CLOSE` remains a deprecated SDK compatibility enum, but `QuantSignalClient` rejects it before transport.
 
 ## Backtest
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import logging
 import math
-import re
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
@@ -11,6 +10,8 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from ..models import ExecutionPolicies, MarketType, OrderType, SignalAction, SignalPayload
+from ..symbols import normalize_symbol_short
+from ..timeframes import parse_timeframe_seconds
 from .interfaces import BaseFeed, BaseStrategy, MarketEvent, PortfolioContext
 
 if TYPE_CHECKING:
@@ -18,8 +19,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-_TIMEFRAME_PATTERN = re.compile(r"^\s*(\d+)\s*([smhdw])\s*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,6 +421,15 @@ class PortfolioBacktestRunner:
             )
 
     def _admit_signal(self, signal: SignalPayload, event: MarketEvent) -> None:
+        if signal.action == SignalAction.CLOSE:
+            raise ValueError(
+                "SignalAction.CLOSE is compatibility-only. "
+                "Use CLOSE_LONG or CLOSE_SHORT before backtest execution."
+            )
+        if signal.action == SignalAction.UPDATE_TP_SL:
+            self._apply_tp_sl_update(signal)
+            return
+
         reference_price = self._reference_price(signal, event.payload)
         order = self._build_order(signal=signal, reference_price=reference_price, created_at=event.timestamp)
         order.quantity = self._apply_size_policy(order, reference_price)
@@ -429,6 +437,21 @@ class PortfolioBacktestRunner:
             return
         self._order_history.append(order)
         self._pending_orders.append(order)
+
+    def _apply_tp_sl_update(self, signal: SignalPayload) -> None:
+        position_key = self._position_key(signal.market_type.value, signal.symbol)
+        position = self._context.positions.get(position_key)
+        if not isinstance(position, dict):
+            logger.info(
+                "ignoring update_tp_sl without active position signalId=%s symbol=%s marketType=%s",
+                signal.signal_id,
+                signal.symbol,
+                signal.market_type.value,
+            )
+            return
+
+        self._apply_protective_levels(position, signal)
+        position["generated_timestamp"] = signal.generated_timestamp
 
     def _apply_size_policy(self, order: BacktestOrder, reference_price: float) -> float:
         max_size_percent = self._resolve_max_size_percent(order.signal.policies)
@@ -747,6 +770,7 @@ class PortfolioBacktestRunner:
                 PositionLot(quantity=quantity, entry_price=price, entry_timestamp=order.created_at, entry_fees=fee)
             ],
         }
+        self._apply_protective_levels(position, order.signal)
         self._context.positions[position_key] = position
         if side == "LONG":
             cash -= quantity * price + fee
@@ -784,6 +808,7 @@ class PortfolioBacktestRunner:
                 position.get("close_position_after"),
                 self._resolve_close_after(order.signal.policies),
             )
+            self._apply_protective_levels(position, order.signal)
             if position.get("timeframe") is None and order.signal.timeframe is not None:
                 position["timeframe"] = order.signal.timeframe
             self._refresh_position_summary(position, existing_sign=1 if existing_side == "LONG" else -1)
@@ -959,7 +984,28 @@ class PortfolioBacktestRunner:
             return "BUY"
         if action in {SignalAction.OPEN_SHORT, SignalAction.CLOSE_LONG}:
             return "SELL"
-        return "BUY"
+        raise ValueError(f"Unsupported backtest action for order creation: {action.value}")
+
+    def _apply_protective_levels(self, position: dict[str, Any], signal: SignalPayload) -> None:
+        if signal.stop_loss is not None:
+            position["stop_loss"] = float(signal.stop_loss)
+        if signal.take_profit is not None:
+            position["take_profit"] = float(signal.take_profit)
+
+        existing_signal = position.get("signal")
+        if isinstance(existing_signal, SignalPayload):
+            update_fields: dict[str, Any] = {
+                "generated_timestamp": signal.generated_timestamp,
+            }
+            if signal.stop_loss is not None:
+                update_fields["stop_loss"] = signal.stop_loss
+            if signal.take_profit is not None:
+                update_fields["take_profit"] = signal.take_profit
+            if signal.policies is not None:
+                update_fields["policies"] = signal.policies
+            position["signal"] = existing_signal.model_copy(update=update_fields, deep=True)
+        else:
+            position["signal"] = signal.model_copy(deep=True)
 
     def _reference_price(self, signal: SignalPayload, payload: dict[str, Any]) -> float:
         if signal.entry is not None:
@@ -1183,13 +1229,10 @@ class PortfolioBacktestRunner:
         return 3600.0
 
     def _timeframe_seconds(self, timeframe: str) -> float | None:
-        match = _TIMEFRAME_PATTERN.match(timeframe)
-        if match is None:
+        try:
+            return float(parse_timeframe_seconds(timeframe))
+        except ValueError:
             return None
-        quantity = int(match.group(1))
-        unit = match.group(2).lower()
-        unit_seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
-        return float(quantity * unit_seconds)
 
     def _merge_close_deadlines(self, current: Any, candidate: datetime | None) -> datetime | None:
         if candidate is None:
@@ -1219,9 +1262,7 @@ class PortfolioBacktestRunner:
         return f"{self._resolve_market_type(market_type)}:{self._normalize_symbol(symbol)}"
 
     def _normalize_symbol(self, symbol: Any) -> str:
-        if symbol is None:
-            return ""
-        return str(symbol).replace("/", "").replace("-", "").replace("_", "").split(":")[0].upper()
+        return normalize_symbol_short(symbol)
 
     def _safe_float(self, value: Any) -> float | None:
         if value is None:

@@ -119,8 +119,47 @@ class Runner:
         positions = self._copy_positions(context.positions)
         position_key = self._position_key(signal)
 
-        if signal.action in {SignalAction.CLOSE, SignalAction.CLOSE_LONG, SignalAction.CLOSE_SHORT}:
+        if signal.action == SignalAction.CLOSE:
+            raise ValueError(
+                "SignalAction.CLOSE is compatibility-only. "
+                "Use CLOSE_LONG or CLOSE_SHORT before runtime execution."
+            )
+
+        if signal.action in {SignalAction.CLOSE_LONG, SignalAction.CLOSE_SHORT}:
             positions.pop(position_key, None)
+            return PortfolioContext(
+                positions=positions,
+                cash=context.cash,
+                open_orders=self._copy_positions(context.open_orders),
+                realized_pnl=context.realized_pnl,
+                unrealized_pnl=context.unrealized_pnl,
+                total_fees=context.total_fees,
+                equity=context.equity,
+                timestamp=signal.generated_timestamp,
+            )
+
+        if signal.action == SignalAction.UPDATE_TP_SL:
+            position = positions.get(position_key)
+            if isinstance(position, dict):
+                if signal.stop_loss is not None:
+                    position["stop_loss"] = float(signal.stop_loss)
+                if signal.take_profit is not None:
+                    position["take_profit"] = float(signal.take_profit)
+                position["generated_timestamp"] = signal.generated_timestamp
+                existing_signal = position.get("signal")
+                if isinstance(existing_signal, SignalPayload):
+                    update_fields: dict[str, Any] = {
+                        "generated_timestamp": signal.generated_timestamp,
+                    }
+                    if signal.stop_loss is not None:
+                        update_fields["stop_loss"] = signal.stop_loss
+                    if signal.take_profit is not None:
+                        update_fields["take_profit"] = signal.take_profit
+                    if signal.policies is not None:
+                        update_fields["policies"] = signal.policies
+                    position["signal"] = existing_signal.model_copy(update=update_fields, deep=True)
+                else:
+                    position["signal"] = signal.model_copy(deep=True)
             return PortfolioContext(
                 positions=positions,
                 cash=context.cash,
@@ -164,6 +203,8 @@ class Runner:
             "side": side,
             "amount": float(signal.amount or 0.0),
             "entry": float(signal.entry or 0.0),
+            "stop_loss": float(signal.stop_loss) if signal.stop_loss is not None else None,
+            "take_profit": float(signal.take_profit) if signal.take_profit is not None else None,
             "current_price": float(signal.entry or 0.0),
             "unrealized_pnl": 0.0,
             "opened_at": signal.generated_timestamp,

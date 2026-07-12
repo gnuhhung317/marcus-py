@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 import joblib
 
+from .symbols import normalize_symbol_short
+
 
 OI_COLUMNS = {
     "sum_open_interest": ["sum_open_interest"],
@@ -357,6 +359,4 @@ def find_column(columns: Iterable[Any], candidates: set[str]) -> str | None:
 
 
 def normalize_symbol(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).replace("/", "").replace("-", "").replace("_", "").split(":")[0].upper()
+    return normalize_symbol_short(value)

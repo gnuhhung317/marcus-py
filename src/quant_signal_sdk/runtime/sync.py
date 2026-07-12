@@ -58,7 +58,7 @@ class DryRunStateTracker:
         signal_timestamp = signal.generated_timestamp or context.timestamp or datetime.now(timezone.utc)
         if signal.action in {SignalAction.OPEN_LONG, SignalAction.OPEN_SHORT}:
             self._store.upsert_position(self._position_from_signal(signal, context, position_key, signal_timestamp))
-        elif signal.action in {SignalAction.CLOSE, SignalAction.CLOSE_LONG, SignalAction.CLOSE_SHORT}:
+        elif signal.action in {SignalAction.CLOSE_LONG, SignalAction.CLOSE_SHORT}:
             existing_position = self._store.get_position(position_key)
             if existing_position is not None:
                 self._store.remove_position(position_key)

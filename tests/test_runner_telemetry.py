@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import sys
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -19,6 +20,11 @@ class TwoEventFeed(BaseFeed):
     def stream(self):
         yield MarketEvent(timestamp=datetime(2026, 1, 1, 0, 0, 0), payload={})
         yield MarketEvent(timestamp=datetime(2026, 1, 1, 1, 0, 0), payload={})
+
+
+class SingleEventFeed(BaseFeed):
+    def stream(self):
+        yield MarketEvent(timestamp=datetime(2026, 1, 1, 0, 0, 0), payload={})
 
 
 class OpenThenCloseStrategy(BaseStrategy):
@@ -193,6 +199,85 @@ def test_runner_logs_and_continues_when_sync_fails(tmp_path):
     context = runner.run()
 
     assert context.positions == {}
+
+
+class UpdateTpSlOnlyStrategy(BaseStrategy):
+    def on_event(self, event: MarketEvent, context: PortfolioContext) -> list[SignalPayload]:
+        return [
+            SignalPayload(
+                signalId="sig_update",
+                botId="bot_1",
+                action=SignalAction.UPDATE_TP_SL,
+                symbol="BTCUSDT",
+                marketType=MarketType.SPOT,
+                orderType=OrderType.MARKET,
+                stopLoss=64000,
+                takeProfit=68000,
+                generatedTimestamp=datetime(2026, 1, 1, 0, 0, 0),
+            )
+        ]
+
+
+def test_runner_does_not_open_position_for_update_tp_sl() -> None:
+    runner = Runner(
+        TwoEventFeed(),
+        UpdateTpSlOnlyStrategy(),
+        NoopDispatcher(),
+        initial_context=PortfolioContext(),
+    )
+
+    context = runner.run()
+
+    assert context.positions == {}
+
+
+def test_runner_updates_protective_levels_for_existing_position() -> None:
+    opened_at = datetime(2026, 1, 1, 0, 0, 0)
+    existing_signal = SignalPayload(
+        signalId="sig_open",
+        botId="bot_1",
+        action=SignalAction.OPEN_LONG,
+        symbol="BTCUSDT",
+        marketType=MarketType.SPOT,
+        orderType=OrderType.MARKET,
+        entry=65000,
+        amount=0.1,
+        generatedTimestamp=opened_at,
+    )
+    initial_context = PortfolioContext(
+        positions={
+            "SPOT:BTCUSDT": {
+                "position_id": "SPOT:BTCUSDT",
+                "symbol": "BTCUSDT",
+                "market_type": "SPOT",
+                "side": "LONG",
+                "amount": 0.1,
+                "entry": 65000.0,
+                "current_price": 65000.0,
+                "unrealized_pnl": 0.0,
+                "opened_at": opened_at,
+                "generated_timestamp": opened_at,
+                "signal": existing_signal,
+            }
+        }
+    )
+
+    runner = Runner(
+        SingleEventFeed(),
+        UpdateTpSlOnlyStrategy(),
+        NoopDispatcher(),
+        initial_context=initial_context,
+    )
+
+    context = runner.run()
+
+    position = context.positions["SPOT:BTCUSDT"]
+    assert position["side"] == "LONG"
+    assert position["stop_loss"] == 64000.0
+    assert position["take_profit"] == 68000.0
+    assert position["signal"].action == SignalAction.OPEN_LONG
+    assert position["signal"].stop_loss == 64000.0
+    assert position["signal"].take_profit == 68000.0
 
 
 class FakeTelemetryClient:

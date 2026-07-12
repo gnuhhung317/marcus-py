@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from .models import SignalPayload, SignalAction, ExecutionPolicies
-import re
+from .timeframes import parse_timeframe_seconds
 import time
 
 class BoundaryValidationException(Exception):
@@ -100,16 +100,7 @@ class SignalTranslator:
         if timeframe is None:
             raise ValueError("timeframe is required when using candle-based policies")
 
-        tf = timeframe.strip().lower()
-
-        m = re.match(r"^(\d+)([smhdw])$", tf)
-        if not m:
-            raise ValueError(f"unrecognized timeframe format: {timeframe}")
-
-        qty = int(m.group(1))
-        unit = m.group(2)
-        unit_seconds = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}[unit]
-        candle_seconds = qty * unit_seconds
+        candle_seconds = parse_timeframe_seconds(timeframe)
 
         now = int(time.time())
         kwargs: dict[str, int] = {}

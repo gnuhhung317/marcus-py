@@ -66,6 +66,27 @@ class DummyNetworkClient:
         self.calls.append({"url": url, "headers": headers, "json_body": json_body, "timeout_seconds": timeout_seconds})
         return FakeResponse()
 
+    def post_bytes(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        body: bytes,
+        timeout_seconds: float,
+    ) -> FakeResponse:
+        import json
+        json_body = json.loads(body.decode("utf-8")) if body else {}
+        self.calls.append({
+            "url": url,
+            "headers": headers,
+            "json": json_body,
+            "json_body": json_body,
+            "timeout": timeout_seconds,
+            "timeout_seconds": timeout_seconds,
+            "body": body
+        })
+        return FakeResponse()
+
 
 def test_package_root_exposes_runtime_strategy_contract() -> None:
     assert hasattr(BaseStrategy, "on_event")
