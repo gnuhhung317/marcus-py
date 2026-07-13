@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 from .symbols import clean_symbol
 
@@ -184,6 +185,7 @@ class BundleLoader:
             file_path = self._resolve_path(relative_path)
             if not file_path.exists():
                 raise FileNotFoundError(f"Data file not found for {asset.symbol} stream {stream_name}: {file_path}")
+            import pandas as pd
             loaded[stream_name] = pd.read_parquet(file_path)
 
         self._cache[cache_key] = loaded

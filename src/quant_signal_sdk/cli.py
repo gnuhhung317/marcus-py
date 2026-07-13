@@ -10,14 +10,20 @@ import logging
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
+    from .runtime.adapters import DataFrameFeed
+
 import requests
 
-from .ccxt_client import ExchangeDataDownloader
+try:
+    from .ccxt_client import ExchangeDataDownloader
+except ImportError:
+    ExchangeDataDownloader = None  # type: ignore
+
 from .data_loader import BundleLoader
-from .runtime.adapters import DataFrameFeed
 from .runtime.backtest import BacktestConfig, BacktestFill, BacktestOrder, BacktestReport, PortfolioBacktestRunner
 from .runtime.backtest_upload import BacktestUploadClient, BacktestUploadConfig
 from .runtime.interfaces import BaseStrategy
@@ -114,6 +120,11 @@ def _add_install_ohlcv_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _run_install_ohlcv(args: argparse.Namespace) -> int:
+    if ExchangeDataDownloader is None:
+        raise SystemExit(
+            "Market data tools are required for downloading OHLCV. Please install the package with market-data support:\n"
+            "  pip install quant-signal-sdk[market-data]"
+        )
     downloader = ExchangeDataDownloader(exchange_id=args.exchange, market_type=args.market_type)
     symbols = _resolve_install_symbols(args, downloader)
     if not symbols:
@@ -294,6 +305,14 @@ def _read_csv_dicts(path: Path) -> list[dict[str, str]]:
 
 
 def run_backtest(args: argparse.Namespace):
+    try:
+        import pandas as pd
+        from .runtime.adapters import DataFrameFeed
+    except ImportError as exc:
+        raise SystemExit(
+            "Pandas is required for running backtests. Please install the package with backtest support:\n"
+            "  pip install quant-signal-sdk[backtest]"
+        ) from exc
     strategy = _load_strategy(args.bot_file, args.bot_object)
     if getattr(args, "bundle_dir", None):
         dataframe = _load_bundle_dataframe(args.bundle_dir, args.symbol, args.timestamp_column)
@@ -615,6 +634,7 @@ def _find_strategy_candidate(module: Any):
 
 
 def _load_parquet(path: str, timestamp_column: str | None) -> pd.DataFrame:
+    import pandas as pd
     p = Path(path)
     if p.is_dir():
         candidates = sorted(p.glob("*.parquet"))
@@ -653,6 +673,7 @@ def _merge_bundle_streams(
     timestamp_column: str,
     column_mapping: dict[str, str] | None = None,
 ) -> pd.DataFrame:
+    import pandas as pd
     if not raw_asset_data:
         raise ValueError("Bundle asset has no data streams to merge.")
 
@@ -696,6 +717,7 @@ def _merge_bundle_streams(
 
 
 def _normalize_stream_frame(frame: pd.DataFrame, *, timestamp_column: str) -> pd.DataFrame:
+    import pandas as pd
     normalized = frame.copy()
 
     if timestamp_column in normalized.columns:

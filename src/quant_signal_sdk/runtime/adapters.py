@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 import requests
-import pandas as pd
 
 from ..client import QuantSignalClient
 from ..models import SignalPayload
@@ -88,6 +87,7 @@ class DataFrameFeed(BaseFeed):
         self._timestamp_col = timestamp_col
 
     def stream(self) -> Iterator[MarketEvent]:
+        import pandas as pd
         records = self._dataframe.to_dict(orient="records")
 
         if self._timestamp_col in self._dataframe.columns:
@@ -107,6 +107,7 @@ class DataFrameFeed(BaseFeed):
         )
 
     def _coerce_timestamp(self, value: Any) -> datetime:
+        import pandas as pd
         if isinstance(value, datetime):
             return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         if isinstance(value, pd.Timestamp):
